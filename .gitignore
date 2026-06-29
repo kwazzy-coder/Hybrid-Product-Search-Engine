@@ -1,0 +1,27 @@
+# Large data files
+data/products_100k_backup.json
+data/products_100k_backup.zip
+data/click_logs_backup.json
+data/click_logs_backup.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Node
+node_modules/
+dist/
+
+# Models (regenerable)
+search_service/models/*.pkl
+search_service/models/*.index
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

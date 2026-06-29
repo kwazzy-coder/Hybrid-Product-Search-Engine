@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pymongo
+motor
+redis
+rank-bm25
+sentence-transformers
+faiss-cpu
+lightgbm
+pydantic
+langchain-core
+langchain-anthropic
+pandas
+numpy
+requests
+apscheduler

@@ -1,0 +1,7 @@
+kafka-python-ng
+pymongo
+faiss-cpu
+sentence-transformers
+numpy
+requests
+pandas
