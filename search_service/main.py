@@ -369,3 +369,22 @@ def stats():
         "bm25_dirty": bm25_dirty,
         "ltr_model_loaded": ltr_model.model is not None
     }
+
+# ── Route aliases for direct frontend access (no gateway needed) ──
+@app.get("/api/search")
+async def api_search_alias(
+    q: str = Query(..., description="Raw search query"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=50),
+    category: str = Query(None),
+    min_price: float = Query(None),
+    max_price: float = Query(None),
+    min_rating: float = Query(None),
+    in_stock_only: bool = Query(True)
+):
+    return await search(q, page, limit, category, min_price, max_price, min_rating, in_stock_only)
+
+@app.get("/api/stats")
+def api_stats_alias():
+    return stats()
+

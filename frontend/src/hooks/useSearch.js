@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
 
-// Fallback to local origin port 3001 if env is empty
+// In production, point directly to the Render backend
+// Locally, point to the Node.js gateway on port 3001
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:3001';
 
 export function useSearch(query, page, filters) {
@@ -31,20 +31,23 @@ export function useSearch(query, page, filters) {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`${GATEWAY_URL}/api/search`, {
-        params: {
-          q: query,
-          page: page,
-          limit: 20,
-          category: filters.category || undefined,
-          min_price: filters.minPrice || undefined,
-          max_price: filters.maxPrice || undefined,
-          min_rating: filters.minRating || undefined,
-          in_stock_only: filters.inStockOnly
-        }
+      const params = new URLSearchParams({
+        q: query,
+        page: page.toString(),
+        limit: '20',
+        in_stock_only: filters.inStockOnly.toString()
       });
+      if (filters.category) params.set('category', filters.category);
+      if (filters.minPrice) params.set('min_price', filters.minPrice.toString());
+      if (filters.maxPrice) params.set('max_price', filters.maxPrice.toString());
+      if (filters.minRating) params.set('min_rating', filters.minRating.toString());
 
-      const data = response.data;
+      const response = await fetch(`${GATEWAY_URL}/api/search?${params}`);
+      if (!response.ok) {
+        throw new Error(`Search failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
       setIntent(data.intent);
       setTotal(data.total);
       
@@ -62,7 +65,7 @@ export function useSearch(query, page, filters) {
       setHasMore(newItems.length === 20);
     } catch (err) {
       console.error('Search request failed:', err);
-      setError(err.response?.data?.error || err.message || 'Failed to retrieve search results');
+      setError(err.message || 'Failed to retrieve search results');
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: hybrid-search-api
+    runtime: python
+    buildCommand: pip install -r search_service/requirements.txt
+    startCommand: cd search_service && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MONGO_URL
+        sync: false
+      - key: MOCK_SERVICES
+        value: "true"
+      - key: TRANSFORMERS_NO_TF
+        value: "1"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
+    plan: free
