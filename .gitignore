@@ -1,4 +1,4 @@
-# Large data files
+# Large data files (100K+ products)
 data/products_100k_backup.json
 data/products_100k_backup.zip
 data/click_logs_backup.json
@@ -13,10 +13,6 @@ __pycache__/
 # Node
 node_modules/
 dist/
-
-# Models (regenerable)
-search_service/models/*.pkl
-search_service/models/*.index
 
 # OS
 .DS_Store

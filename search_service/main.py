@@ -36,17 +36,18 @@ mock_products = []
 
 if MOCK_SERVICES:
     print("Running in MOCK_SERVICES mode. Databases are mocked.")
-    backup_path = "../data/products_100k_backup.json"
-    if not os.path.exists(backup_path):
-        backup_path = "data/products_100k_backup.json"
+    backup_path = None
+    for p in ["../data/products_2k.json", "data/products_2k.json", "../data/products_100k_backup.json", "data/products_100k_backup.json"]:
+        if os.path.exists(p):
+            backup_path = p
+            break
         
-    if os.path.exists(backup_path):
+    if backup_path:
         with open(backup_path, "r") as f:
             mock_products = json.load(f)
-        mock_products = mock_products[:2000]  # Cap to 2,000 for CPU indexing performance
-        print(f"Loaded {len(mock_products)} products (capped for CPU performance) from local backup json.")
+        mock_products = mock_products[:2000]
+        print(f"Loaded {len(mock_products)} products from {backup_path}.")
     else:
-        # Inline basic generation if file doesn't exist
         mock_products = [{
             "_id": f"prod_{i}", "name": f"Libas Women Red Kurta {i}", "category": "kurta",
             "price": 399, "mrp": 899, "discount_percent": 55, "rating": 4.2,
@@ -64,15 +65,17 @@ else:
     except Exception as e:
         print(f"MongoDB connection failed: {e}. Automatically falling back to MOCK_SERVICES mode.")
         MOCK_SERVICES = True
-        backup_path = "../data/products_100k_backup.json"
-        if not os.path.exists(backup_path):
-            backup_path = "data/products_100k_backup.json"
+        backup_path = None
+        for p in ["../data/products_2k.json", "data/products_2k.json", "../data/products_100k_backup.json", "data/products_100k_backup.json"]:
+            if os.path.exists(p):
+                backup_path = p
+                break
             
-        if os.path.exists(backup_path):
+        if backup_path:
             with open(backup_path, "r") as f:
                 mock_products = json.load(f)
-            mock_products = mock_products[:2000]  # Cap to 2,000 for CPU indexing performance
-            print(f"Loaded {len(mock_products)} products (capped for CPU performance) from local backup json.")
+            mock_products = mock_products[:2000]
+            print(f"Loaded {len(mock_products)} products from {backup_path}.")
         else:
             mock_products = [{
                 "_id": f"prod_{i}", "name": f"Libas Women Red Kurta {i}", "category": "kurta",
