@@ -11,3 +11,6 @@ langchain-anthropic
 apscheduler
 pydantic
 faiss-cpu
+transformers
+Pillow
+datasets

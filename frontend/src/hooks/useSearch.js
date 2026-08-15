@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 
-// In production, point directly to the Render backend
-// Locally, point to the Node.js gateway on port 3001
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:3001';
+// In production, point to Render backend via VITE_GATEWAY_URL
+// Locally, point directly to FastAPI on port 8000
+const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8000';
 
 export function useSearch(query, page, filters) {
   const [loading, setLoading] = useState(false);

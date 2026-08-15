@@ -7,7 +7,7 @@ def price_match_score(price: float, max_price: float | None) -> float:
         return 0.0
     return 1.0 - (price / max_price) * 0.3   # slight boost for cheaper items
 
-def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: float) -> list[float]:
+def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: float, clip_score: float = 0.0) -> list[float]:
     # Extract categories and normalize safely
     q_cat = (query_intent.category or "").strip().lower()
     
@@ -69,6 +69,36 @@ def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: fl
     # In stock status
     in_stock = 1.0 if product.get("in_stock", True) else 0.0
     
+    # f10: attribute match
+    query_attrs = []
+    if q_cat:
+        query_attrs.append(q_cat)
+    if q_colors:
+        query_attrs.extend(q_colors)
+    
+    if len(query_attrs) == 0:
+        attribute_match = 0.5
+    else:
+        matched = 0
+        if category_match > 0:
+            matched += 1
+        for qc in q_colors:
+            if any(qc in pc for pc in p_colors):
+                matched += 1
+        attribute_match = matched / len(query_attrs)
+
+    # f11: binding score
+    color_bindings = getattr(query_intent, 'color_bindings', {})
+    if not color_bindings:
+        binding_score = 1.0
+    else:
+        p_name_tags = str(product.get("name", "")).lower() + " " + " ".join([str(t).lower() for t in product.get("tags", [])])
+        matched_bindings = 0
+        for item, color in color_bindings.items():
+            if item in p_name_tags and any(color in pc for pc in p_colors):
+                matched_bindings += 1
+        binding_score = matched_bindings / len(color_bindings)
+    
     return [
         rrf_score,          # f1: RRF score
         category_match,     # f2: category match
@@ -77,5 +107,8 @@ def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: fl
         rating,             # f5: rating
         reviews,            # f6: review count
         discount,           # f7: discount percentage
-        in_stock            # f8: in stock
+        in_stock,           # f8: in stock
+        clip_score,         # f9: clip score
+        attribute_match,    # f10: attribute match
+        binding_score       # f11: binding score
     ]

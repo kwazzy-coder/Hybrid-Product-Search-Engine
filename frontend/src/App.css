@@ -69,6 +69,13 @@
   width: 100%;
 }
 
+.catalog-disclaimer {
+  margin: -12px 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .hero-panel {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);

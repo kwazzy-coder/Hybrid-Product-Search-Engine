@@ -11,6 +11,7 @@ class QueryIntent(BaseModel):
     expanded_terms: list[str] = Field(default_factory=list)
     category: str | None = None
     color: list[str] = Field(default_factory=list)
+    color_bindings: dict[str, str] = Field(default_factory=dict)
     max_price: float | None = None
     min_rating: float | None = None
     brand: str | None = None
@@ -123,8 +124,9 @@ def parse_query_local_fallback(raw_query: str) -> QueryIntent:
             category = words[0]
             expanded_terms = [category]
         else:
-            category = "clothing"
-            expanded_terms = ["clothing"]
+            # Pure color/attribute query (e.g., "green", "red") — don't force a category
+            category = None
+            expanded_terms = list(extracted_colors) if extracted_colors else [query_lower]
 
     # Add color to expanded terms
     for col in extracted_colors:
@@ -135,11 +137,25 @@ def parse_query_local_fallback(raw_query: str) -> QueryIntent:
         elif col == "blue":
             expanded_terms.append("navy")
             
+    # Detect color bindings: "red kurta and white shirt" → {"kurta": "red", "shirt": "white"}
+    color_bindings = {}
+    binding_pattern = r'(\w+)\s+(\w+)\s+(?:and|with|&)\s+(\w+)\s+(\w+)'
+    match = re.search(binding_pattern, query_lower)
+    if match:
+        c1, item1, c2, item2 = match.groups()
+        if c1 in colors_list and c2 in colors_list:
+            color_bindings = {item1: c1, item2: c2}
+        elif c1 in colors_list:
+            color_bindings = {item1: c1}
+        elif c2 in colors_list:
+            color_bindings = {item2: c2}
+            
     return QueryIntent(
         original_query=raw_query,
         expanded_terms=list(set(expanded_terms)),
         category=category,
         color=extracted_colors,
+        color_bindings=color_bindings,
         max_price=max_price,
         min_rating=min_rating,
         brand=extracted_brand

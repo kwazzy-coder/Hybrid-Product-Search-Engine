@@ -3,17 +3,24 @@ import asyncio
 import json
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pymongo import MongoClient
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from query_understanding import parse_query
 from retrieval.bm25_retriever import BM25Retriever
 from retrieval.faiss_retriever import FAISSRetriever
+from retrieval.clip_retriever import CLIPRetriever
 from retrieval.hybrid import reciprocal_rank_fusion
 from reranker.features import build_feature_vector
 from reranker.ltr_model import LTRModel
 
 app = FastAPI(title="Hybrid Product Search Engine API")
+
+# Serve product images as static files
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Enable CORS for frontend and API Gateway
 app.add_middleware(
@@ -33,6 +40,26 @@ MOCK_SERVICES = os.getenv("MOCK_SERVICES", "false").lower() == "true"
 mongo_client = None
 db = None
 mock_products = []
+
+def load_local_catalog():
+    """Load the bundled catalog when MongoDB has not been seeded yet."""
+    global mock_products
+    if mock_products:
+        return mock_products
+
+    service_dir = os.path.dirname(os.path.abspath(__file__))
+    for catalog_dir in ("/data", os.path.join(service_dir, "..", "data")):
+        for filename in ("products_2k.json", "products_100k_backup.json"):
+            path = os.path.join(catalog_dir, filename)
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    mock_products = json.load(f)
+                # The checked-in indexes are built from the 2K catalog.
+                mock_products = mock_products[:2000]
+                print(f"Loaded {len(mock_products)} products from local catalog: {filename}.")
+                return mock_products
+
+    return mock_products
 
 if MOCK_SERVICES:
     print("Running in MOCK_SERVICES mode. Databases are mocked.")
@@ -87,6 +114,7 @@ else:
 
 bm25 = BM25Retriever()
 faiss = FAISSRetriever()
+clip = CLIPRetriever()
 ltr_model = LTRModel()
 
 # Flag to trigger incremental index rebuilds
@@ -141,6 +169,10 @@ async def startup_event():
     # Try loading existing indices
     bm25_loaded = bm25.load()
     faiss_loaded = faiss.load()
+    clip_loaded = clip.load()
+    
+    if not clip_loaded:
+        print("CLIP index not found. Visual search will be disabled.")
     
     if not bm25_loaded or not faiss_loaded:
         print("Indices not found or incomplete. Rebuilding from DB...")
@@ -176,18 +208,25 @@ async def search(
             from query_understanding import QueryIntent
             intent = QueryIntent(original_query=q, expanded_terms=[q])
 
-        # Step 2: retrieve (parallel using asyncio.to_thread)
+        # Step 2: retrieve (parallel using asyncio.to_thread — 3-way)
         try:
-            bm25_results, faiss_results = await asyncio.gather(
+            bm25_results, faiss_results, clip_results = await asyncio.gather(
                 asyncio.to_thread(bm25.search, intent.expanded_terms),
-                asyncio.to_thread(faiss.search, intent.original_query)
+                asyncio.to_thread(faiss.search, intent.original_query),
+                asyncio.to_thread(clip.search, intent.original_query)
             )
         except Exception as e:
             print(f"Retrieval failed: {e}")
-            bm25_results, faiss_results = [], []
+            bm25_results, faiss_results, clip_results = [], [], []
 
-        # Step 3: fuse
-        merged = reciprocal_rank_fusion(bm25_results, faiss_results)
+        # Step 3: fuse (3-way weighted RRF)
+        merged = reciprocal_rank_fusion(
+            bm25_results, faiss_results, clip_results,
+            weights=[1.0, 1.0, 0.8]
+        )
+        
+        # Build CLIP score lookup for re-ranking features
+        clip_score_map = {pid: score for pid, score in clip_results}
         if not merged:
             return {
                 "query": q,
@@ -205,16 +244,15 @@ async def search(
             try:
                 cursor = db["products"].find({"_id": {"$in": product_ids}})
                 products = list(cursor)
+                if not products:
+                    # A fresh Docker MongoDB volume has no seeded products. The
+                    # retrieval indexes still refer to the bundled catalog, so
+                    # use it to hydrate candidates instead of returning zero hits.
+                    products = [p for p in load_local_catalog() if p["_id"] in product_ids]
             except Exception as e:
                 print(f"MongoDB query failed: {e}. Falling back to in-memory mock products.")
                 MOCK_SERVICES = True
-                backup_path = "data/products_100k_backup.json"
-                if not os.path.exists(backup_path):
-                    backup_path = "../data/products_100k_backup.json"
-                if os.path.exists(backup_path):
-                    with open(backup_path, "r") as f:
-                        mock_products = json.load(f)
-                products = [p for p in mock_products if p["_id"] in product_ids]
+                products = [p for p in load_local_catalog() if p["_id"] in product_ids]
                 
         product_map = {p["_id"]: p for p in products}
 
@@ -235,7 +273,8 @@ async def search(
                     "min_rating": query_min_rating
                 })
                 
-                fv = build_feature_vector(overridden_intent, product, score)
+                product_clip_score = clip_score_map.get(pid, 0.0)
+                fv = build_feature_vector(overridden_intent, product, score, clip_score=product_clip_score)
                 feature_vectors.append(fv)
                 candidates_to_rank.append(pid)
 
@@ -368,6 +407,8 @@ def stats():
     return {
         "total_products_indexed": len(bm25.product_ids),
         "faiss_index_size": faiss.index.ntotal,
+        "clip_index_size": clip.index.ntotal,
+        "clip_model_loaded": clip.model is not None,
         "faiss_exclusion_list_size": len(faiss.exclusion_list),
         "bm25_dirty": bm25_dirty,
         "ltr_model_loaded": ltr_model.model is not None
@@ -390,4 +431,3 @@ async def api_search_alias(
 @app.get("/api/stats")
 def api_stats_alias():
     return stats()
-

@@ -1,14 +1,14 @@
-version: '3.8'
-
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
+    profiles: ["ingestion"]
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
+    profiles: ["ingestion"]
     depends_on:
       - zookeeper
     ports:
@@ -41,7 +41,6 @@ services:
     depends_on:
       - mongodb
       - redis
-      - kafka
     environment:
       MONGO_URL: mongodb://mongodb:27017
       REDIS_URL: redis://redis:6379
@@ -49,10 +48,12 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - ./search_service:/app
+      - ./data:/data:ro
       - search_cache:/root/.cache
 
   ingestion_service:
     build: ./ingestion_service
+    profiles: ["ingestion"]
     depends_on:
       - mongodb
       - kafka
