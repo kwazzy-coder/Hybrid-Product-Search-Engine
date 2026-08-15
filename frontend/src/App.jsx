@@ -140,7 +140,7 @@ export default function App() {
           </div>
 
           <p className="catalog-disclaimer">
-            Demo catalog — marketplace buttons open a search for this product; prices and availability may differ.
+            Demo catalog — marketplace buttons find similar products; they are not exact listing links.
           </p>
 
           <ResultsList

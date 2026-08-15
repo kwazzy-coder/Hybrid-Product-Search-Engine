@@ -1,6 +1,10 @@
 import os
 import asyncio
 import json
+import time
+import uuid
+from difflib import get_close_matches
+from datetime import datetime, timezone
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +18,7 @@ from retrieval.clip_retriever import CLIPRetriever
 from retrieval.hybrid import reciprocal_rank_fusion
 from reranker.features import build_feature_vector
 from reranker.ltr_model import LTRModel
+from analytics import SearchAnalytics
 
 app = FastAPI(title="Hybrid Product Search Engine API")
 
@@ -40,6 +45,8 @@ MOCK_SERVICES = os.getenv("MOCK_SERVICES", "false").lower() == "true"
 mongo_client = None
 db = None
 mock_products = []
+analytics = SearchAnalytics()
+index_metadata = {"version": "unavailable", "document_count": 0}
 
 def load_local_catalog():
     """Load the bundled catalog when MongoDB has not been seeded yet."""
@@ -60,6 +67,47 @@ def load_local_catalog():
                 return mock_products
 
     return mock_products
+
+
+def catalog_products():
+    """Return the active catalog for suggestions and demo ingestion."""
+    if MOCK_SERVICES:
+        return mock_products or load_local_catalog()
+    return load_local_catalog()
+
+
+def suggest_queries(raw_query: str, limit: int = 5) -> list[str]:
+    query = raw_query.strip().lower()
+    if len(query) < 2:
+        return []
+    terms = set()
+    for product in catalog_products():
+        terms.add(str(product.get("category", "")).lower())
+        terms.update(str(tag).lower() for tag in product.get("tags", []))
+        terms.update(str(color).lower() for color in product.get("color", []))
+        terms.update(str(product.get("name", "")).lower().split())
+    corrected = get_close_matches(query, terms, n=1, cutoff=0.72)
+    prefix_matches = sorted(term for term in terms if term.startswith(query))[:limit]
+    return list(dict.fromkeys(corrected + prefix_matches))[:limit]
+
+
+def explain_result(intent, product, ltr_score: float, rrf_score: float) -> list[str]:
+    reasons = []
+    product_text = " ".join([
+        str(product.get("category", "")), str(product.get("name", "")),
+        " ".join(str(tag) for tag in product.get("tags", [])),
+    ]).lower()
+    if intent.category and intent.category.lower() in product_text:
+        reasons.append("matched category")
+    if intent.color and any(color.lower() in [str(value).lower() for value in product.get("color", [])] for color in intent.color):
+        reasons.append("matched color")
+    if intent.max_price is not None and product.get("price", 0) <= intent.max_price:
+        reasons.append("within budget")
+    if product.get("in_stock", True):
+        reasons.append("in stock")
+    reasons.append(f"hybrid relevance {rrf_score:.3f}")
+    reasons.append(f"rerank score {float(ltr_score):.3f}")
+    return reasons
 
 if MOCK_SERVICES:
     print("Running in MOCK_SERVICES mode. Databases are mocked.")
@@ -121,7 +169,7 @@ ltr_model = LTRModel()
 bm25_dirty = False
 
 def rebuild_indices_from_db():
-    global bm25_dirty
+    global bm25_dirty, index_metadata
     print("Rebuilding search indices...")
     try:
         if MOCK_SERVICES:
@@ -142,6 +190,15 @@ def rebuild_indices_from_db():
         faiss.id_map = {}
         faiss.add_products(products)
         faiss.save()
+
+        index_metadata = {
+            "version": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+            "document_count": len(products),
+            "rebuilt_at": datetime.now(timezone.utc).isoformat(),
+        }
+        metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "index_metadata.json")
+        with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+            json.dump(index_metadata, metadata_file, indent=2)
         
         bm25_dirty = False
         print("Indices successfully rebuilt and saved.")
@@ -170,6 +227,13 @@ async def startup_event():
     bm25_loaded = bm25.load()
     faiss_loaded = faiss.load()
     clip_loaded = clip.load()
+    global index_metadata
+    metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "index_metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+            index_metadata = json.load(metadata_file)
+    else:
+        index_metadata = {"version": "legacy", "document_count": len(bm25.product_ids)}
     
     if not clip_loaded:
         print("CLIP index not found. Visual search will be disabled.")
@@ -198,6 +262,8 @@ async def search(
     in_stock_only: bool = Query(True, description="Filter for in-stock items")
 ):
     try:
+        started_at = time.perf_counter()
+        query_id = str(uuid.uuid4())
         global MOCK_SERVICES, mock_products
         # Step 1: parse query intent
         try:
@@ -228,7 +294,9 @@ async def search(
         # Build CLIP score lookup for re-ranking features
         clip_score_map = {pid: score for pid, score in clip_results}
         if not merged:
+            analytics.record_search(query_id, q, (time.perf_counter() - started_at) * 1000, 0)
             return {
+                "query_id": query_id,
                 "query": q,
                 "intent": intent.model_dump(),
                 "total": 0,
@@ -289,6 +357,7 @@ async def search(
 
         # Step 6: sort
         ranked = sorted(zip(candidates_to_rank, ltr_scores), key=lambda x: x[1], reverse=True)
+        rrf_score_map = dict(merged)
 
         # Step 7: Apply post-filters
         filtered_results = []
@@ -345,6 +414,9 @@ async def search(
             # Enrich product dict with score for transparency
             enriched_product = product.copy()
             enriched_product["_score"] = float(ltr_score)
+            enriched_product["_explanation"] = explain_result(
+                intent, product, ltr_score, rrf_score_map.get(pid, 0.0)
+            )
             filtered_results.append(enriched_product)
 
         # Step 8: paginate
@@ -353,10 +425,14 @@ async def search(
         end_idx = start_idx + limit
         page_results = filtered_results[start_idx:end_idx]
 
+        latency_ms = (time.perf_counter() - started_at) * 1000
+        analytics.record_search(query_id, q, latency_ms, total_results)
         return {
+            "query_id": query_id,
             "query": q,
             "intent": intent.model_dump(),
             "total": total_results,
+            "latency_ms": round(latency_ms, 2),
             "results": page_results
         }
     except Exception as e:
@@ -402,6 +478,46 @@ def admin_reload_ltr():
         raise HTTPException(status_code=500, detail="LTR load failed")
     return {"status": "success", "message": "LTR model reloaded"}
 
+@app.post("/admin/ingest")
+def admin_ingest_products(payload: dict):
+    """Ingest a catalog batch, then atomically rebuild the retrieval indexes."""
+    products = payload.get("products", [])
+    if not isinstance(products, list) or not products:
+        raise HTTPException(status_code=400, detail="Payload must include a non-empty products list")
+    required_fields = {"_id", "name", "category", "price"}
+    invalid = [product.get("_id", "unknown") for product in products if not required_fields.issubset(product)]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid products: {invalid[:5]}")
+    global mock_products, MOCK_SERVICES
+    if MOCK_SERVICES or db is None:
+        existing = {product["_id"]: product for product in catalog_products()}
+        existing.update({product["_id"]: product for product in products})
+        mock_products = list(existing.values())
+        MOCK_SERVICES = True
+    else:
+        for product in products:
+            db["products"].replace_one({"_id": product["_id"]}, product, upsert=True)
+    if not rebuild_indices_from_db():
+        raise HTTPException(status_code=500, detail="Products stored but index rebuild failed")
+    return {"status": "success", "ingested": len(products), "index": index_metadata}
+
+@app.get("/suggestions")
+def suggestions(q: str = Query(..., min_length=2), limit: int = Query(5, ge=1, le=10)):
+    return {"query": q, "suggestions": suggest_queries(q, limit)}
+
+@app.post("/analytics/click")
+def record_click(payload: dict):
+    query_id = payload.get("query_id")
+    product_id = payload.get("product_id")
+    if not query_id or not product_id:
+        raise HTTPException(status_code=400, detail="query_id and product_id are required")
+    analytics.record_click(query_id, product_id)
+    return {"status": "recorded"}
+
+@app.get("/analytics/summary")
+def analytics_summary():
+    return analytics.summary()
+
 @app.get("/stats")
 def stats():
     return {
@@ -412,6 +528,7 @@ def stats():
         "faiss_exclusion_list_size": len(faiss.exclusion_list),
         "bm25_dirty": bm25_dirty,
         "ltr_model_loaded": ltr_model.model is not None
+        ,"index": index_metadata
     }
 
 # ── Route aliases for direct frontend access (no gateway needed) ──
@@ -431,3 +548,15 @@ async def api_search_alias(
 @app.get("/api/stats")
 def api_stats_alias():
     return stats()
+
+@app.get("/api/suggestions")
+def api_suggestions_alias(q: str = Query(..., min_length=2), limit: int = Query(5, ge=1, le=10)):
+    return suggestions(q, limit)
+
+@app.get("/api/analytics/summary")
+def api_analytics_summary_alias():
+    return analytics_summary()
+
+@app.post("/api/analytics/click")
+def api_record_click_alias(payload: dict):
+    return record_click(payload)

@@ -81,7 +81,7 @@ export function ProductCard({ product }) {
               target="_blank"
               rel="noreferrer"
             >
-              {label}
+              Similar on {label}
             </a>
           ))}
         </div>
