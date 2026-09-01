@@ -5,11 +5,14 @@ import time
 import uuid
 from difflib import get_close_matches
 from datetime import datetime, timezone
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pymongo import MongoClient
 from apscheduler.schedulers.background import BackgroundScheduler
+
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 from query_understanding import parse_query
 from retrieval.bm25_retriever import BM25Retriever
@@ -19,8 +22,22 @@ from retrieval.hybrid import reciprocal_rank_fusion
 from reranker.features import build_feature_vector
 from reranker.ltr_model import LTRModel
 from analytics import SearchAnalytics
+from ingestion import create_cross_platform_dataset
+from deduplication import find_cross_source_duplicates, build_dedup_index, price_competitiveness_score, diversify_results
+from feedback_db import log_click_event, init_db
 
 app = FastAPI(title="Hybrid Product Search Engine API")
+
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Hybrid Product Search Engine API",
+        "status": "ok",
+        "docs": "/docs",
+        "search": "/api/search?q=red+dress",
+    }
+
 
 # Serve product images as static files
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -165,6 +182,9 @@ faiss = FAISSRetriever()
 clip = CLIPRetriever()
 ltr_model = LTRModel()
 
+# Cross-platform deduplication index (product_id -> dedup info)
+dedup_index = {}
+
 # Flag to trigger incremental index rebuilds
 bm25_dirty = False
 
@@ -220,6 +240,9 @@ scheduler.add_job(check_and_rebuild_indices, 'interval', minutes=5)
 
 @app.on_event("startup")
 async def startup_event():
+    global dedup_index
+    # Initialize SQLite feedback DB
+    init_db()
     # Start scheduler
     scheduler.start()
     
@@ -243,6 +266,15 @@ async def startup_event():
         rebuild_indices_from_db()
         # Reload models
         ltr_model.load()
+    
+    # Build cross-source deduplication index
+    if MOCK_SERVICES and mock_products:
+        try:
+            dup_groups = find_cross_source_duplicates(clip, mock_products)
+            dedup_index = build_dedup_index(mock_products, dup_groups)
+            print(f"Cross-source dedup index built: {len(dedup_index)} products have cross-platform duplicates")
+        except Exception as e:
+            print(f"Dedup index build failed (non-critical): {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -342,7 +374,12 @@ async def search(
                 })
                 
                 product_clip_score = clip_score_map.get(pid, 0.0)
-                fv = build_feature_vector(overridden_intent, product, score, clip_score=product_clip_score)
+                
+                # Cross-platform price competitiveness (f12)
+                dedup_info = dedup_index.get(pid)
+                pc_score = price_competitiveness_score(product, dedup_info) if dedup_info else 0.5
+                
+                fv = build_feature_vector(overridden_intent, product, score, clip_score=product_clip_score, price_competitiveness=pc_score)
                 feature_vectors.append(fv)
                 candidates_to_rank.append(pid)
 
@@ -355,8 +392,12 @@ async def search(
         else:
             ltr_scores = []
 
-        # Step 6: sort
+        # Step 6: sort + source diversity
         ranked = sorted(zip(candidates_to_rank, ltr_scores), key=lambda x: x[1], reverse=True)
+        
+        # Apply source-diversity constraint (prevents one platform from dominating results)
+        ranked = diversify_results(ranked, product_map, lambda_diversity=0.3)
+        
         rrf_score_map = dict(merged)
 
         # Step 7: Apply post-filters
@@ -417,6 +458,18 @@ async def search(
             enriched_product["_explanation"] = explain_result(
                 intent, product, ltr_score, rrf_score_map.get(pid, 0.0)
             )
+            
+            # Add cross-platform info
+            enriched_product["source"] = product.get("source", "unknown")
+            dedup_info = dedup_index.get(pid)
+            if dedup_info:
+                enriched_product["_cross_platform"] = {
+                    "cheapest_price": dedup_info["cheapest_price"],
+                    "cheapest_source": product_map.get(dedup_info["cheapest_id"], {}).get("source", "unknown"),
+                    "available_on": dedup_info["group_size"],
+                    "price_rank": dedup_info["price_rank"],
+                }
+            
             filtered_results.append(enriched_product)
 
         # Step 8: paginate
@@ -438,6 +491,219 @@ async def search(
     except Exception as e:
         print(f"Search endpoint error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+@app.post("/search/image")
+async def search_image(
+    file: UploadFile = File(...),
+    q: Optional[str] = Form(None),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=50, description="Items per page"),
+    category: Optional[str] = Query(None, description="Category filter override"),
+    min_price: Optional[float] = Query(None, description="Min price filter override"),
+    max_price: Optional[float] = Query(None, description="Max price filter override"),
+    min_rating: Optional[float] = Query(None, description="Min rating filter override"),
+    in_stock_only: bool = Query(True, description="Filter for in-stock items")
+):
+    try:
+        started_at = time.perf_counter()
+        query_id = str(uuid.uuid4())
+        global MOCK_SERVICES, mock_products
+
+        # Step 1: Validate uploaded image
+        if not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File uploaded is not an image")
+            
+        contents = await file.read()
+        from PIL import Image
+        import io
+        try:
+            image = Image.open(io.BytesIO(contents))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
+
+        # Step 2: Extract text intent if optional text prompt provided
+        intent_query_text = q.strip() if (q and q.strip()) else "[Uploaded Image]"
+        if q and q.strip():
+            try:
+                intent = await asyncio.to_thread(parse_query, q.strip())
+            except Exception as e:
+                print(f"Query parsing failed for image search text prompt: {e}")
+                from query_understanding import QueryIntent
+                intent = QueryIntent(original_query=q.strip(), expanded_terms=[q.strip()])
+        else:
+            from query_understanding import QueryIntent
+            intent = QueryIntent(original_query="[Uploaded Image]", expanded_terms=[])
+
+        # Step 3: Run image encoding & retrieval
+        if q and q.strip():
+            # Multimodal: Image + Text query
+            bm25_results, faiss_results, clip_results = await asyncio.gather(
+                asyncio.to_thread(bm25.search, intent.expanded_terms),
+                asyncio.to_thread(faiss.search, intent.original_query),
+                asyncio.to_thread(clip.search_by_image, image)
+            )
+            merged = reciprocal_rank_fusion(
+                bm25_results, faiss_results, clip_results,
+                weights=[0.8, 0.8, 1.2]
+            )
+        else:
+            # Pure Visual Image Search
+            clip_results = await asyncio.to_thread(clip.search_by_image, image)
+            merged = clip_results
+
+        clip_score_map = {pid: score for pid, score in clip_results}
+        if not merged:
+            analytics.record_search(query_id, intent_query_text, (time.perf_counter() - started_at) * 1000, 0)
+            return {
+                "query_id": query_id,
+                "query": intent_query_text,
+                "intent": intent.model_dump(),
+                "total": 0,
+                "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                "results": []
+            }
+
+        # Step 4: Fetch product candidates
+        product_ids = [pid for pid, _ in merged]
+        products = []
+        if MOCK_SERVICES:
+            products = [p for p in mock_products if p["_id"] in product_ids]
+        else:
+            try:
+                cursor = db["products"].find({"_id": {"$in": product_ids}})
+                products = list(cursor)
+                if not products:
+                    products = [p for p in load_local_catalog() if p["_id"] in product_ids]
+            except Exception as e:
+                print(f"MongoDB query failed: {e}. Falling back to local catalog.")
+                products = [p for p in load_local_catalog() if p["_id"] in product_ids]
+
+        product_map = {p["_id"]: p for p in products}
+
+        # Step 5: LTR Re-ranking
+        feature_vectors = []
+        candidates_to_rank = []
+
+        for pid, score in merged:
+            if pid in product_map:
+                product = product_map[pid]
+                query_max_price = max_price if max_price is not None else intent.max_price
+                query_min_rating = min_rating if min_rating is not None else intent.min_rating
+
+                overridden_intent = intent.model_copy(update={
+                    "max_price": query_max_price,
+                    "min_rating": query_min_rating
+                })
+
+                product_clip_score = clip_score_map.get(pid, score)
+                dedup_info = dedup_index.get(pid)
+                pc_score = price_competitiveness_score(product, dedup_info) if dedup_info else 0.5
+
+                fv = build_feature_vector(overridden_intent, product, score, clip_score=product_clip_score, price_competitiveness=pc_score)
+                feature_vectors.append(fv)
+                candidates_to_rank.append(pid)
+
+        if feature_vectors and ltr_model.model:
+            try:
+                ltr_scores = ltr_model.predict(feature_vectors)
+            except Exception as e:
+                print(f"LTR prediction error: {e}")
+                ltr_scores = [fv[0] for fv in feature_vectors]
+        else:
+            ltr_scores = [fv[0] for fv in feature_vectors] if feature_vectors else []
+
+        ranked = sorted(zip(candidates_to_rank, ltr_scores), key=lambda x: x[1], reverse=True)
+        ranked = diversify_results(ranked, product_map, lambda_diversity=0.3)
+        rrf_score_map = dict(merged)
+
+        # Step 6: Post-filtering & Response enrichment
+        filtered_results = []
+        filter_category = category.lower().strip() if category else intent.category
+        filter_min_price = min_price if min_price is not None else getattr(intent, 'min_price', None)
+        filter_max_price = max_price if max_price is not None else getattr(intent, 'max_price', None)
+        filter_min_rating = min_rating if min_rating is not None else getattr(intent, 'min_rating', None)
+
+        for pid, ltr_score in ranked:
+            product = product_map[pid]
+
+            if filter_category:
+                p_cat = product.get("category", "").lower().strip()
+                p_subcat = product.get("subcategory", "").lower().strip()
+                p_name = product.get("name", "").lower()
+                p_tags = [str(t).lower() for t in product.get("tags", [])]
+
+                synonyms = {
+                    "kurta": ["kurta", "kurti", "ethnic"],
+                    "shirt": ["shirt", "shirts"],
+                    "tshirt": ["tshirt", "t-shirt", "tee"],
+                    "jeans": ["jeans", "denim"],
+                    "dress": ["dress", "frock", "gown"],
+                    "shoes": ["shoes", "sneakers", "footwear"]
+                }
+                candidates = [filter_category]
+                if filter_category in synonyms:
+                    candidates.extend(synonyms[filter_category])
+
+                matched = (p_cat == filter_category) or any(c in p_subcat or c in p_name or c in p_tags for c in candidates)
+                if not matched:
+                    continue
+
+            price = product.get("price", 0)
+            if filter_max_price is not None and price > filter_max_price:
+                continue
+            if filter_min_price is not None and price < filter_min_price:
+                continue
+
+            rating = product.get("rating", 0.0)
+            if filter_min_rating is not None and rating < filter_min_rating:
+                continue
+
+            if in_stock_only and not product.get("in_stock", True):
+                continue
+
+            enriched_product = product.copy()
+            enriched_product["_score"] = float(ltr_score)
+            enriched_product["_explanation"] = explain_result(
+                intent, product, ltr_score, rrf_score_map.get(pid, 0.0)
+            )
+
+            enriched_product["source"] = product.get("source", "unknown")
+            dedup_info = dedup_index.get(pid)
+            if dedup_info:
+                enriched_product["_cross_platform"] = {
+                    "cheapest_price": dedup_info["cheapest_price"],
+                    "cheapest_source": product_map.get(dedup_info["cheapest_id"], {}).get("source", "unknown"),
+                    "available_on": dedup_info["group_size"],
+                    "price_rank": dedup_info["price_rank"],
+                }
+
+            filtered_results.append(enriched_product)
+
+        # Step 7: Paginate
+        total_results = len(filtered_results)
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        page_results = filtered_results[start_idx:end_idx]
+
+        latency_ms = (time.perf_counter() - started_at) * 1000
+        analytics.record_search(query_id, intent_query_text, latency_ms, total_results)
+        return {
+            "query_id": query_id,
+            "query": intent_query_text,
+            "intent": intent.model_dump(),
+            "total": total_results,
+            "latency_ms": round(latency_ms, 2),
+            "results": page_results
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Image search endpoint error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Image search failed: {str(e)}")
 
 @app.post("/admin/rebuild_indices")
 def admin_rebuild():
@@ -520,6 +786,9 @@ def analytics_summary():
 
 @app.get("/stats")
 def stats():
+    sources = set()
+    if MOCK_SERVICES and mock_products:
+        sources = set(p.get("source", "unknown") for p in mock_products)
     return {
         "total_products_indexed": len(bm25.product_ids),
         "faiss_index_size": faiss.index.ntotal,
@@ -527,8 +796,12 @@ def stats():
         "clip_model_loaded": clip.model is not None,
         "faiss_exclusion_list_size": len(faiss.exclusion_list),
         "bm25_dirty": bm25_dirty,
-        "ltr_model_loaded": ltr_model.model is not None
-        ,"index": index_metadata
+        "ltr_model_loaded": ltr_model.model is not None,
+        "cross_platform": {
+            "sources": sorted(sources),
+            "dedup_entries": len(dedup_index),
+        },
+        "index": index_metadata
     }
 
 # ── Route aliases for direct frontend access (no gateway needed) ──
@@ -557,6 +830,44 @@ def api_suggestions_alias(q: str = Query(..., min_length=2), limit: int = Query(
 def api_analytics_summary_alias():
     return analytics_summary()
 
+class FeedbackPayload(BaseModel):
+    query: str
+    shown_results: List[str]
+    clicked_id: str
+    timestamp: Optional[str] = None
+
+@app.post("/feedback")
+def record_feedback(payload: FeedbackPayload):
+    if not payload.query or not payload.clicked_id or not payload.shown_results:
+        raise HTTPException(status_code=400, detail="query, clicked_id, and shown_results are required")
+    event_id = log_click_event(
+        query=payload.query,
+        shown_results=payload.shown_results,
+        clicked_id=payload.clicked_id,
+        timestamp=payload.timestamp
+    )
+    return {"status": "success", "event_id": event_id, "message": "Click event logged to SQLite table click_events"}
+
 @app.post("/api/analytics/click")
 def api_record_click_alias(payload: dict):
     return record_click(payload)
+
+@app.post("/api/feedback")
+def api_record_feedback_alias(payload: FeedbackPayload):
+    return record_feedback(payload)
+
+@app.post("/api/search/image")
+async def api_search_image_alias(
+    file: UploadFile = File(...),
+    q: Optional[str] = Form(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=50),
+    category: Optional[str] = Query(None),
+    min_price: Optional[float] = Query(None),
+    max_price: Optional[float] = Query(None),
+    min_rating: Optional[float] = Query(None),
+    in_stock_only: bool = Query(True)
+):
+    return await search_image(file, q, page, limit, category, min_price, max_price, min_rating, in_stock_only)
+
+

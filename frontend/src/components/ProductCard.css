@@ -147,28 +147,54 @@
   text-decoration: line-through;
 }
 
-.marketplace-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: auto;
-  padding-top: 8px;
+/* Source badge */
+.source-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.marketplace-link {
-  color: var(--text-main);
-  background: rgba(6, 182, 212, 0.1);
-  border: 1px solid rgba(6, 182, 212, 0.35);
-  border-radius: 8px;
+/* Cross-platform pricing */
+.cross-platform-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
+}
+
+.best-price-badge {
+  color: #34d399;
   font-size: 0.72rem;
   font-weight: 700;
-  padding: 6px 9px;
-  text-decoration: none;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  background: rgba(52, 211, 153, 0.12);
+  padding: 3px 8px;
+  border-radius: 6px;
 }
 
-.marketplace-link:hover,
-.marketplace-link:focus-visible {
-  background: rgba(6, 182, 212, 0.2);
-  border-color: var(--accent-cyan);
+.cheaper-elsewhere {
+  color: #fbbf24;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(251, 191, 36, 0.1);
+  padding: 3px 8px;
+  border-radius: 6px;
 }
+
+.available-on {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+

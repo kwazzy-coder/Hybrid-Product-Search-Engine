@@ -1,0 +1,394 @@
+{
+  "summary": {
+    "num_queries": 25,
+    "rrf_off_mean": {
+      "ndcg@5": 0.89,
+      "ndcg@10": 0.9005
+    },
+    "ltr_on_mean": {
+      "ndcg@5": 0.9052,
+      "ndcg@10": 0.8963
+    },
+    "aggregate_lift_pct": {
+      "ndcg@5": 1.71,
+      "ndcg@10": -0.47
+    }
+  },
+  "query_details": [
+    {
+      "query": "red dress",
+      "rrf_off": {
+        "ndcg@5": 0.1429,
+        "ndcg@10": 0.3006
+      },
+      "ltr_on": {
+        "ndcg@5": 0.4286,
+        "ndcg@10": 0.6038
+      },
+      "lift_pct": {
+        "ndcg@5": 200.0,
+        "ndcg@10": 100.87
+      }
+    },
+    {
+      "query": "blue shirt",
+      "rrf_off": {
+        "ndcg@5": 0.8062,
+        "ndcg@10": 0.8742
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 24.04,
+        "ndcg@10": 14.39
+      }
+    },
+    {
+      "query": "black shoes",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "white tshirt",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "green kurta",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 0.8777,
+        "ndcg@10": 0.9207
+      },
+      "lift_pct": {
+        "ndcg@5": -12.23,
+        "ndcg@10": -7.93
+      }
+    },
+    {
+      "query": "formal shoes",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "casual jeans",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "sports shoes",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "pink dress",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 0.8648
+      },
+      "ltr_on": {
+        "ndcg@5": 0.9165,
+        "ndcg@10": 0.9127
+      },
+      "lift_pct": {
+        "ndcg@5": -8.35,
+        "ndcg@10": 5.54
+      }
+    },
+    {
+      "query": "navy blue shirt",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "running shoes",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "denim jeans",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "cotton shirt",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "summer dress",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "winter jacket",
+      "rrf_off": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      },
+      "ltr_on": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "formal shirt",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "party dress",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "leather shoes",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "sneakers",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "sandals",
+      "rrf_off": {
+        "ndcg@5": 0.8539,
+        "ndcg@10": 0.8318
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 0.9266
+      },
+      "lift_pct": {
+        "ndcg@5": 17.11,
+        "ndcg@10": 11.39
+      }
+    },
+    {
+      "query": "ethnic kurta",
+      "rrf_off": {
+        "ndcg@5": 0.4469,
+        "ndcg@10": 0.641
+      },
+      "ltr_on": {
+        "ndcg@5": 0.8539,
+        "ndcg@10": 0.684
+      },
+      "lift_pct": {
+        "ndcg@5": 91.1,
+        "ndcg@10": 6.7
+      }
+    },
+    {
+      "query": "casual wear",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 0.5531,
+        "ndcg@10": 0.359
+      },
+      "lift_pct": {
+        "ndcg@5": -44.69,
+        "ndcg@10": -64.1
+      }
+    },
+    {
+      "query": "office wear",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "blue jeans",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    },
+    {
+      "query": "black formal shoes",
+      "rrf_off": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "ltr_on": {
+        "ndcg@5": 1.0,
+        "ndcg@10": 1.0
+      },
+      "lift_pct": {
+        "ndcg@5": 0.0,
+        "ndcg@10": 0.0
+      }
+    }
+  ]
+}

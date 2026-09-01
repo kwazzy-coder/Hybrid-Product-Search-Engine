@@ -192,24 +192,32 @@ def build_clip_index(items, products):
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     model.eval()
 
-    # Encode images in batches
+    # Encode images in batches (only original items have images)
+    # Duplicates share the same image, so we encode once and map to all IDs
     batch_size = 32
     all_embeddings = []
     all_ids = []
     
-    print(f"  Encoding {len(items)} product images ...")
+    # Map source_product_id -> list of product _ids (for duplicates)
+    spid_to_pids = {}
+    for p in products:
+        spid = p.get("source_product_id", p["_id"])
+        if spid not in spid_to_pids:
+            spid_to_pids[spid] = []
+        spid_to_pids[spid].append(p["_id"])
+    
+    print(f"  Encoding {len(items)} unique product images (mapping to {len(products)} product IDs) ...")
     for i in range(0, len(items), batch_size):
         batch_items = items[i:i+batch_size]
-        batch_products = products[i:i+batch_size]
         
         images = []
-        ids = []
-        for item, product in zip(batch_items, batch_products):
+        batch_spids = []
+        for item in batch_items:
             img = item["image"]
             if img.mode != "RGB":
                 img = img.convert("RGB")
             images.append(img)
-            ids.append(product["_id"])
+            batch_spids.append(str(item["id"]))
         
         with torch.no_grad():
             inputs = processor(images=images, return_tensors="pt", padding=True).to(device)
@@ -218,8 +226,12 @@ def build_clip_index(items, products):
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             embeddings = image_features.cpu().numpy().astype("float32")
         
-        all_embeddings.append(embeddings)
-        all_ids.extend(ids)
+        # Map each embedding to ALL product IDs that share this image
+        for emb_idx, spid in enumerate(batch_spids):
+            pids = spid_to_pids.get(spid, [])
+            for pid in pids:
+                all_embeddings.append(embeddings[emb_idx:emb_idx+1])
+                all_ids.append(pid)
         
         if (i + batch_size) % 200 == 0 or i + batch_size >= len(items):
             print(f"    Encoded {min(i+batch_size, len(items))}/{len(items)} images")
@@ -302,19 +314,25 @@ def main():
     # Step 3: Build product records
     products = build_product_records(items)
 
-    # Step 4: Save product data JSON
+    # Step 4: Create cross-platform dataset (assign sources + create duplicates)
+    from ingestion import create_cross_platform_dataset
+    products = create_cross_platform_dataset(products, duplicate_ratio=0.15)
+
+    # Step 5: Save product data JSON
     save_product_data(products)
 
-    # Step 5: Build CLIP image index
+    # Step 6: Build CLIP image index (use original items for images, but map to new IDs)
     build_clip_index(items, products)
 
-    # Step 6: Build BM25 + FAISS text indexes
+    # Step 7: Build BM25 + FAISS text indexes
     build_text_indexes(products)
 
     print("\n" + "=" * 60)
     print("  All indexes built successfully!")
     print("=" * 60)
-    print(f"\n  Products: {len(products)}")
+    sources = set(p.get("source", "unknown") for p in products)
+    originals = sum(1 for p in products if not p["_id"].count("_") > 1)
+    print(f"\n  Products: {len(products)} ({len(sources)} sources: {', '.join(sorted(sources))})")
     print(f"  Images:   {IMAGES_DIR}")
     print(f"  Models:   {MODELS_DIR}")
     print(f"  Data:     {DATA_DIR}")

@@ -42,20 +42,15 @@ class CLIPRetriever:
             image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
             return image_features.cpu().numpy().astype(np.float32)
 
-    def search(self, query: str, top_k=100) -> list[tuple[str, float]]:
-        if self.model is None:
-            return []
-            
+    def search_by_embedding(self, embedding: np.ndarray, top_k=100) -> list[tuple[str, float]]:
         if self.index.ntotal == 0:
             return []
             
-        embedding = self.encode_texts([query])
-        
         k = min(top_k, self.index.ntotal)
         if k == 0:
             return []
             
-        scores, ids = self.index.search(embedding, k)
+        scores, ids = self.index.search(embedding.astype(np.float32), k)
         
         results = []
         for fid, score in zip(ids[0], scores[0]):
@@ -67,6 +62,23 @@ class CLIPRetriever:
                 results.append((pid, float(score)))
                 
         return results
+
+    def search_by_image(self, image, top_k=100) -> list[tuple[str, float]]:
+        if self.model is None or self.index.ntotal == 0:
+            return []
+            
+        embedding = self.encode_images([image])
+        return self.search_by_embedding(embedding, top_k=top_k)
+
+    def search(self, query: str, top_k=100) -> list[tuple[str, float]]:
+        if self.model is None:
+            return []
+            
+        if self.index.ntotal == 0:
+            return []
+            
+        embedding = self.encode_texts([query])
+        return self.search_by_embedding(embedding, top_k=top_k)
 
     def add_image_embeddings(self, embeddings: np.ndarray, product_ids: list[str]):
         if len(product_ids) == 0:

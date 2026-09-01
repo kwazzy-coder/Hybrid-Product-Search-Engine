@@ -7,7 +7,7 @@ def price_match_score(price: float, max_price: float | None) -> float:
         return 0.0
     return 1.0 - (price / max_price) * 0.3   # slight boost for cheaper items
 
-def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: float, clip_score: float = 0.0) -> list[float]:
+def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: float, clip_score: float = 0.0, price_competitiveness: float = 0.5) -> list[float]:
     # Extract categories and normalize safely
     q_cat = (query_intent.category or "").strip().lower()
     
@@ -100,15 +100,16 @@ def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: fl
         binding_score = matched_bindings / len(color_bindings)
     
     return [
-        rrf_score,          # f1: RRF score
-        category_match,     # f2: category match
-        color_match,        # f3: color match
-        p_match,            # f4: price match score
-        rating,             # f5: rating
-        reviews,            # f6: review count
-        discount,           # f7: discount percentage
-        in_stock,           # f8: in stock
-        clip_score,         # f9: clip score
-        attribute_match,    # f10: attribute match
-        binding_score       # f11: binding score
+        rrf_score,              # f1: RRF score
+        category_match,         # f2: category match
+        color_match,            # f3: color match
+        p_match,                # f4: price match score
+        rating,                 # f5: rating
+        reviews,                # f6: review count
+        discount,               # f7: discount percentage
+        in_stock,               # f8: in stock
+        clip_score,             # f9: clip score
+        attribute_match,        # f10: attribute match
+        binding_score,          # f11: binding score
+        price_competitiveness,  # f12: cross-platform price competitiveness
     ]

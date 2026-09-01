@@ -3,13 +3,11 @@ import './ProductCard.css';
 
 const BACKEND_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8000';
 
-const marketplaceSearchUrls = (name) => {
-  const query = encodeURIComponent(name || 'fashion');
-  return [
-    { label: 'Flipkart', url: `https://www.flipkart.com/search?q=${query}` },
-    { label: 'Amazon', url: `https://www.amazon.in/s?k=${query}` },
-    { label: 'Myntra', url: `https://www.myntra.com/${query}` }
-  ];
+const SOURCE_COLORS = {
+  amazon: '#FF9900',
+  myntra: '#FF3F6C',
+  ajio: '#3880FF',
+  flipkart: '#2874F0',
 };
 
 export function ProductCard({ product }) {
@@ -23,7 +21,9 @@ export function ProductCard({ product }) {
     review_count,
     in_stock,
     image_url,
-    _score
+    source,
+    _score,
+    _cross_platform
   } = product;
 
   // Format score to a readable decimal if present
@@ -33,7 +33,9 @@ export function ProductCard({ product }) {
   const fullImageUrl = image_url
     ? (image_url.startsWith('http') ? image_url : `${BACKEND_URL}${image_url}`)
     : 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=400&q=80';
-  const marketplaceLinks = marketplaceSearchUrls(name);
+
+  const sourceColor = SOURCE_COLORS[source] || '#888';
+  const sourceName = source ? source.charAt(0).toUpperCase() + source.slice(1) : 'Unknown';
 
   return (
     <div className={`product-card glass ${!in_stock ? 'out-of-stock-card' : ''}`}>
@@ -44,6 +46,10 @@ export function ProductCard({ product }) {
           className="product-image"
           loading="lazy"
         />
+        {/* Source badge */}
+        <span className="source-badge" style={{ backgroundColor: sourceColor }}>
+          {sourceName}
+        </span>
         {!in_stock && <span className="out-of-stock-badge">Out of Stock</span>}
         {discount_percent > 0 && in_stock && (
           <span className="discount-badge">{discount_percent}% OFF</span>
@@ -72,19 +78,22 @@ export function ProductCard({ product }) {
           <span className="current-price">₹{price}</span>
           {mrp > price && <span className="mrp-price">₹{mrp}</span>}
         </div>
-        <div className="marketplace-links" aria-label={`Find ${name} on marketplaces`}>
-          {marketplaceLinks.map(({ label, url }) => (
-            <a
-              key={label}
-              className="marketplace-link"
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Similar on {label}
-            </a>
-          ))}
-        </div>
+
+        {/* Cross-platform pricing info */}
+        {_cross_platform && (
+          <div className="cross-platform-info">
+            {_cross_platform.price_rank === 1 ? (
+              <span className="best-price-badge">✓ Best Price</span>
+            ) : (
+              <span className="cheaper-elsewhere">
+                ₹{_cross_platform.cheapest_price} on {_cross_platform.cheapest_source}
+              </span>
+            )}
+            <span className="available-on">
+              {_cross_platform.available_on} sources
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
