@@ -11,17 +11,27 @@ class FAISSRetriever:
         # Preferred embedding dimension (matches all-MiniLM-L6-v2)
         self.embedding_dim = 384
         self.model = None
+        self._model_load_attempted = False
+
+        # Do not download transformer weights while importing the FastAPI app.
+        # On hosts such as Render, that can prevent the process from binding
+        # its HTTP port before the platform's startup scan times out.
+
+        # Inner Product similarity (normalize first = cosine similarity)
+        self.index = faiss.IndexIDMap(faiss.IndexFlatIP(self.embedding_dim))
+        self.id_map = {}           # faiss int64 id → product_id string
+        self.exclusion_list = set() # product_ids to exclude (deleted products)
+
+    def _load_model(self):
+        if self._model_load_attempted:
+            return
+        self._model_load_attempted = True
         try:
             from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
             print("Loaded SentenceTransformer model for FAISS retriever.")
         except Exception as e:
             print(f"SentenceTransformer unavailable: {e}. Using deterministic fallback embeddings.")
-
-        # Inner Product similarity (normalize first = cosine similarity)
-        self.index = faiss.IndexIDMap(faiss.IndexFlatIP(self.embedding_dim))
-        self.id_map = {}           # faiss int64 id → product_id string
-        self.exclusion_list = set() # product_ids to exclude (deleted products)
 
     def _fallback_embed(self, text: str) -> np.ndarray:
         # Deterministic pseudo-embedding based on SHA256-derived seed
@@ -36,6 +46,7 @@ class FAISSRetriever:
         return vec / norm
 
     def _embed_texts(self, texts: list[str]) -> np.ndarray:
+        self._load_model()
         if self.model is not None:
             return self.model.encode(texts, normalize_embeddings=True)
         # Fallback deterministic embeddings

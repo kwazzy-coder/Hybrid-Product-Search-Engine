@@ -11,6 +11,12 @@ class CLIPRetriever:
         self.index = faiss.IndexIDMap(faiss.IndexFlatIP(self.embedding_dim))
         self.id_map = {}
         self.exclusion_list = set()
+        self._model_load_attempted = False
+
+    def _load_model(self):
+        if self._model_load_attempted:
+            return
+        self._model_load_attempted = True
         try:
             from transformers import CLIPModel, CLIPProcessor
             self.model = CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
@@ -21,6 +27,7 @@ class CLIPRetriever:
             print(f'CLIP model unavailable: {e}. Visual search disabled.')
 
     def encode_texts(self, texts: list[str]) -> np.ndarray:
+        self._load_model()
         if self.model is None or self.processor is None:
             return np.zeros((len(texts), self.embedding_dim), dtype=np.float32)
         
@@ -32,6 +39,7 @@ class CLIPRetriever:
             return text_features.cpu().numpy().astype(np.float32)
 
     def encode_images(self, images) -> np.ndarray:
+        self._load_model()
         if self.model is None or self.processor is None:
             return np.zeros((len(images), self.embedding_dim), dtype=np.float32)
         
@@ -64,6 +72,7 @@ class CLIPRetriever:
         return results
 
     def search_by_image(self, image, top_k=100) -> list[tuple[str, float]]:
+        self._load_model()
         if self.model is None or self.index.ntotal == 0:
             return []
             
@@ -71,6 +80,7 @@ class CLIPRetriever:
         return self.search_by_embedding(embedding, top_k=top_k)
 
     def search(self, query: str, top_k=100) -> list[tuple[str, float]]:
+        self._load_model()
         if self.model is None:
             return []
             
