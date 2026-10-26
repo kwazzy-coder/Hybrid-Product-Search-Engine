@@ -11,7 +11,8 @@ Includes an automated **SQLite click-feedback logging pipeline**, **hard negativ
 * **⚡ 3-Way Parallel Hybrid Retrieval**: Queries execute across BM25, FAISS dense text, and CLIP text-to-image indexes simultaneously using `asyncio.gather`, merged via scale-invariant Reciprocal Rank Fusion ($k=60$).
 * **🎯 12-Feature Learning-to-Rank (LTR)**: LightGBM LambdaRank model (`objective="lambdarank"`, `metric="ndcg"`) optimized for top-K slot precision based on category match, color binding, ratings, discounts, CLIP visual similarity, and cross-platform price competitiveness.
 * **🖼️ Image-to-Image & Multimodal Search**: `POST /search/image` endpoint supporting pure visual search (upload product image $\rightarrow$ FAISS vector lookup) or multimodal search (image upload + text prompt like *"under $50"*).
-* **🛍️ Cross-Platform Aggregation & CLIP Deduplication**: Schema normalization layer unifying multi-retailer listings (*Amazon, Myntra, Ajio, Flipkart*) and CLIP image embedding cosine similarity (>0.95) to detect identical physical products and surface real-time price comparisons.
+* **🕸️ Live Catalog from Real Fashion Stores**: A polite, robots.txt-aware crawler (`crawler/`) collects real products from Indian fashion brands (Libas, Suta, Powerlook, The Bear House, Bonkers Corner), with real prices, MRP, sizes, stock and product links, and tracks price history for price-drop badges. See [`crawler/README.md`](crawler/README.md).
+* **🛍️ Cross-Store Matching**: In live mode, listings of the same physical product in different stores are matched by CLIP image similarity (≥0.92), confirmed by brand/title similarity, category and price sanity checks, to show where it's cheapest. The demo catalog simulates this with synthetic duplicates across *Amazon, Myntra, Ajio, Flipkart* labels.
 * **🔄 Click Feedback Mining & Hard Negatives**: SQLite logger (`click_events` table) storing user clicks, paired with an automated extractor (`build_hard_negatives.py`) that mines top-10 unclicked items as hard negatives for LTR retraining.
 * **📊 Offline Evaluation Harness**: Benchmarking script (`evaluate.py`) comparing Re-ranking OFF vs ON against ground-truth judgements, calculating exact NDCG@5 / NDCG@10 metrics (**+200% lift** on multi-attribute queries).
 
@@ -117,7 +118,20 @@ cd ..
 
 ### 2. Dataset & Vector Index Building
 
-Build product catalog (2,300 items across Amazon, Myntra, Ajio, Flipkart) and generate BM25, FAISS, and CLIP indexes:
+**Option A: live catalog from real fashion stores (recommended)**
+
+```bash
+pip install -r crawler/requirements.txt
+python -m crawler refresh                    # crawl stores, export catalog, download thumbnails
+cd search_service
+python scripts/build_live_index.py           # BM25 + MiniLM + CLIP indexes + cross-store matching
+cd ..
+```
+
+Set your contact in `crawler/sites.toml` first. Details, scheduling and the list of stores are in [`crawler/README.md`](crawler/README.md).
+The API uses the live catalog automatically once its indexes exist (`CATALOG=demo` switches back).
+
+**Option B: demo catalog** (2,300 HuggingFace fashion items with synthetic prices, ratings and store labels):
 
 ```bash
 cd search_service
