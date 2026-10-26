@@ -4,6 +4,9 @@ import faiss
 import numpy as np
 import hashlib
 
+from paths import INDEX_DIR
+from retrieval.ids import stable_id
+
 # Lazy import SentenceTransformer; provide fallback if it's unavailable
 
 class FAISSRetriever:
@@ -58,11 +61,18 @@ class FAISSRetriever:
             return
         texts = [p.get("embedding_text", "") for p in products]
         embeddings = self._embed_texts(texts)
-        
+
+        # Replace existing vectors for these products instead of adding duplicates.
+        incoming = {p["_id"] for p in products}
+        stale = [fid for fid, pid in self.id_map.items() if pid in incoming]
+        if stale:
+            self.index.remove_ids(np.array(stale, dtype=np.int64))
+            for fid in stale:
+                del self.id_map[fid]
+
         ids = []
         for p in products:
-            # Generate stable 63-bit integer hash to avoid sign overflow in FAISS
-            fid = int(hash(p["_id"]) & 0x7FFFFFFFFFFFFFFF)
+            fid = stable_id(p["_id"])
             ids.append(fid)
             self.id_map[fid] = p["_id"]
             # Remove from exclusion list if it is re-added
@@ -99,12 +109,10 @@ class FAISSRetriever:
 
     def save(self, index_path=None, map_path=None):
         if index_path is None or map_path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
             if index_path is None:
-                index_path = os.path.join(search_service_dir, "models", "faiss.index")
+                index_path = os.path.join(INDEX_DIR, "faiss.index")
             if map_path is None:
-                map_path = os.path.join(search_service_dir, "models", "faiss_id_map.pkl")
+                map_path = os.path.join(INDEX_DIR, "faiss_id_map.pkl")
         
         os.makedirs(os.path.dirname(index_path), exist_ok=True)
         os.makedirs(os.path.dirname(map_path), exist_ok=True)
@@ -116,12 +124,10 @@ class FAISSRetriever:
 
     def load(self, index_path=None, map_path=None):
         if index_path is None or map_path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
             if index_path is None:
-                index_path = os.path.join(search_service_dir, "models", "faiss.index")
+                index_path = os.path.join(INDEX_DIR, "faiss.index")
             if map_path is None:
-                map_path = os.path.join(search_service_dir, "models", "faiss_id_map.pkl")
+                map_path = os.path.join(INDEX_DIR, "faiss_id_map.pkl")
         
         if not os.path.exists(index_path) or not os.path.exists(map_path):
             print(f"FAISS index or ID map files not found at {index_path} or {map_path}")

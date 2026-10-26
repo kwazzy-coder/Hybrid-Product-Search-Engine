@@ -16,6 +16,66 @@ class QueryIntent(BaseModel):
     min_rating: float | None = None
     brand: str | None = None
 
+
+# Canonical categories (the crawler emits these) and the words people use for them.
+# Order matters: more specific entries first ("kurta set" before "kurta", "tshirt" before "shirt").
+CATEGORY_SYNONYMS: dict[str, list[str]] = {
+    "kurta set": ["kurta set", "kurta sets", "suit set", "salwar suit", "anarkali set", "sharara set"],
+    "saree": ["saree", "sarees", "sari", "saris"],
+    "lehenga": ["lehenga", "lehengas", "lehenga choli", "ghagra"],
+    "kurta": ["kurta", "kurtas", "kurti", "kurtis", "anarkali", "ethnic top", "tunic"],
+    "dupatta": ["dupatta", "dupattas", "stole", "shawl"],
+    "co-ord set": ["co-ord", "co-ords", "coord", "co-ord set", "coord set", "matching set"],
+    "jumpsuit": ["jumpsuit", "jumpsuits", "playsuit", "romper", "dungarees"],
+    "dress": ["dress", "dresses", "frock", "gown", "maxi", "one-piece"],
+    "hoodie": ["hoodie", "hoodies", "hooded sweatshirt"],
+    "sweatshirt": ["sweatshirt", "sweatshirts"],
+    "tshirt": ["tshirt", "tshirts", "t-shirt", "t-shirts", "t shirt", "tee", "tees", "polo", "polos", "henley"],
+    "shirt": ["shirt", "shirts", "overshirt", "formal shirt", "casual shirt"],
+    "top": ["top", "tops", "crop top", "cami", "blouse", "bodysuit"],
+    "sweater": ["sweater", "sweaters", "cardigan", "pullover", "jumper"],
+    "jacket": ["jacket", "jackets", "bomber", "shacket", "coat", "blazer", "waistcoat", "nehru jacket"],
+    "jeans": ["jeans", "denim", "denims"],
+    "trousers": ["trousers", "trouser", "pants", "chinos", "cargo", "cargos", "joggers", "track pants", "palazzo", "leggings"],
+    "shorts": ["shorts", "bermuda"],
+    "skirt": ["skirt", "skirts"],
+    "shoes": ["shoes", "shoe", "sneakers", "sneaker", "footwear", "loafers", "boots", "sandals", "slides",
+              "flip flops", "heels", "flats", "juttis", "mojaris", "kolhapuris", "running shoes"],
+    "bag": ["bag", "bags", "handbag", "handbags", "tote", "backpack", "clutch", "sling bag", "potli"],
+    "wallet": ["wallet", "wallets", "card holder"],
+    "cap": ["cap", "caps", "hat", "hats", "beanie"],
+    "belt": ["belt", "belts"],
+    "socks": ["socks", "sock"],
+    "jewellery": ["jewellery", "jewelry", "earrings", "necklace", "bracelet", "bangles", "jhumka", "jhumkas"],
+    "watch": ["watch", "watches"],
+    "sunglasses": ["sunglasses", "shades", "eyewear"],
+    "scarf": ["scarf", "scarves", "muffler"],
+    "innerwear": ["innerwear", "boxers", "briefs", "trunks", "bra", "bras", "lingerie"],
+    "nightwear": ["nightwear", "night suit", "pyjama set", "loungewear", "sleepwear"],
+    "fragrance": ["perfume", "perfumes", "fragrance", "deodorant", "body mist"],
+}
+KNOWN_CATEGORIES = set(CATEGORY_SYNONYMS)
+
+
+def category_matches(product: dict, category: str | None) -> bool:
+    """Does a product belong to `category`? Word-boundary matching, so "tee" never matches "steel"."""
+    if not category:
+        return True
+    category = category.strip().lower()
+    names = {category, *CATEGORY_SYNONYMS.get(category, [])}
+    p_cat = str(product.get("category", "") or "").strip().lower()
+    if p_cat in names:
+        return True
+    if p_cat in KNOWN_CATEGORIES:
+        # The product has a clean category and it's a different one (e.g. a tshirt isn't a shirt).
+        return False
+    # Older catalogs use free-form categories ("watches", "handbags"): fall back to text.
+    text = " ".join([
+        str(product.get("subcategory", "") or ""), p_cat, str(product.get("name", "") or ""),
+        " ".join(str(t) for t in product.get("tags", []) or []),
+    ]).lower()
+    return any(re.search(rf"\b{re.escape(n)}\b", text) for n in names)
+
 # Initialize Redis client
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = None
@@ -40,6 +100,7 @@ You are a search query parser for an Indian e-commerce platform.
 Given a user query, extract structured intent and expand the query
 with synonyms and related terms relevant to Indian fashion/products.
 Return valid JSON only. No explanation.
+"category" must be one of: {categories} — or null if none fits.
 
 Example:
 Input: "red kurta under 500"
@@ -97,36 +158,24 @@ def parse_query_local_fallback(raw_query: str) -> QueryIntent:
             extracted_brand = b.capitalize()
             break
 
-    # 5. Extract category & expand terms
-    categories_map = {
-        "kurta": ["kurta", "kurti", "ethnic top", "Indian wear", "ethnic"],
-        "shirt": ["shirt", "shirts", "formal shirt", "casual shirt"],
-        "tshirt": ["tshirt", "t-shirt", "tee", "polos", "top"],
-        "jeans": ["jeans", "denim", "pants", "trousers"],
-        "dress": ["dress", "frock", "maxi", "one-piece"],
-        "shoes": ["shoes", "sneakers", "footwear", "running shoes"]
-    }
-    
+    # 5. Extract category & expand terms (known categories only)
     category = None
     expanded_terms = []
-    
-    for cat, synonyms in categories_map.items():
-        if re.search(rf"\b{cat}\b", query_lower) or any(re.search(rf"\b{syn}\b", query_lower) for syn in synonyms):
+
+    for cat, synonyms in CATEGORY_SYNONYMS.items():
+        matched = [syn for syn in [cat, *synonyms] if re.search(rf"\b{re.escape(syn)}\b", query_lower)]
+        if matched:
             category = cat
-            expanded_terms = list(synonyms)
+            # The canonical name plus the words the user actually typed ("kurti" -> kurta, kurti).
+            expanded_terms = list(dict.fromkeys([cat, *matched]))
             break
-            
-    if not category:
-        # Default category extraction based on nouns
-        # Use first word as category if nothing found
-        words = [w for w in query_lower.split() if w not in colors_list and w not in ["under", "below", "above", "star", "rating", "rs"]]
-        if words:
-            category = words[0]
-            expanded_terms = [category]
-        else:
-            # Pure color/attribute query (e.g., "green", "red") — don't force a category
-            category = None
-            expanded_terms = list(extracted_colors) if extracted_colors else [query_lower]
+
+    # Keep the user's own words too, so "silk", "wedding" or "oversized" still reach BM25.
+    stop = {"under", "below", "above", "less", "than", "star", "stars", "rating", "rs", "for", "with", "and", "the", "a", "in", "of"}
+    words = [w for w in re.findall(r"[a-z0-9-]+", query_lower) if w not in stop and not w.isdigit()]
+    expanded_terms.extend(words)
+    if not expanded_terms:
+        expanded_terms = list(extracted_colors) if extracted_colors else [query_lower]
 
     # Add color to expanded terms
     for col in extracted_colors:
@@ -182,14 +231,15 @@ def parse_query(raw_query: str) -> QueryIntent:
         try:
             # Setup LangChain ChatAnthropic with JSON parser
             llm = ChatAnthropic(
-                model="claude-3-5-sonnet-20241022",
+                model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"),
                 temperature=0.0,
                 api_key=api_key,
                 timeout=5.0
             )
             parser = JsonOutputParser(pydantic_object=QueryIntent)
             
-            prompt = f"System: {SYSTEM_PROMPT}\nUser query: \"{raw_query}\"\nJSON output:"
+            system = SYSTEM_PROMPT.replace("{categories}", ", ".join(CATEGORY_SYNONYMS))
+            prompt = f"System: {system}\nUser query: \"{raw_query}\"\nJSON output:"
             response = llm.invoke(prompt)
             
             # Extract content from response

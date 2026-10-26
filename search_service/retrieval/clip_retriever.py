@@ -3,6 +3,9 @@ import pickle
 import faiss
 import numpy as np
 
+from paths import INDEX_DIR
+from retrieval.ids import stable_id
+
 class CLIPRetriever:
     def __init__(self):
         self.embedding_dim = 512
@@ -94,9 +97,16 @@ class CLIPRetriever:
         if len(product_ids) == 0:
             return
             
+        incoming = set(product_ids)
+        stale = [fid for fid, pid in self.id_map.items() if pid in incoming]
+        if stale:
+            self.index.remove_ids(np.array(stale, dtype=np.int64))
+            for fid in stale:
+                del self.id_map[fid]
+
         ids = []
         for pid in product_ids:
-            fid = int(hash(pid) & 0x7FFFFFFFFFFFFFFF)
+            fid = stable_id(pid)
             ids.append(fid)
             self.id_map[fid] = pid
             self.exclusion_list.discard(pid)
@@ -107,12 +117,10 @@ class CLIPRetriever:
 
     def save(self, index_path=None, map_path=None):
         if index_path is None or map_path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
             if index_path is None:
-                index_path = os.path.join(search_service_dir, "models", "clip.index")
+                index_path = os.path.join(INDEX_DIR, "clip.index")
             if map_path is None:
-                map_path = os.path.join(search_service_dir, "models", "clip_id_map.pkl")
+                map_path = os.path.join(INDEX_DIR, "clip_id_map.pkl")
         
         os.makedirs(os.path.dirname(index_path), exist_ok=True)
         os.makedirs(os.path.dirname(map_path), exist_ok=True)
@@ -124,12 +132,10 @@ class CLIPRetriever:
 
     def load(self, index_path=None, map_path=None):
         if index_path is None or map_path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
             if index_path is None:
-                index_path = os.path.join(search_service_dir, "models", "clip.index")
+                index_path = os.path.join(INDEX_DIR, "clip.index")
             if map_path is None:
-                map_path = os.path.join(search_service_dir, "models", "clip_id_map.pkl")
+                map_path = os.path.join(INDEX_DIR, "clip_id_map.pkl")
         
         if not os.path.exists(index_path) or not os.path.exists(map_path):
             print(f"CLIP index or ID map files not found at {index_path} or {map_path}")

@@ -1,13 +1,94 @@
 """
-Cross-Source Deduplication via CLIP Embeddings
-==============================================
-Detects near-duplicate product listings across e-commerce sources
-using CLIP image embeddings. Same physical product often has inconsistent
-titles but near-identical images across platforms.
+Cross-Source Deduplication
+==========================
+match_cross_store()  — real matching for crawled catalogs: CLIP image similarity
+                       confirmed by title/brand similarity, category and price sanity.
+find_cross_source_duplicates() — the original demo path. The synthetic catalog
+                       copies a product id across fake platforms, so it groups by
+                       that id rather than by image similarity.
 """
 
+import re
 import numpy as np
 from collections import defaultdict
+
+_TOKEN = re.compile(r"[a-z0-9]+")
+_STOP = {"men", "mens", "women", "womens", "for", "with", "and", "the", "of", "in", "fit", "regular", "new"}
+
+
+def _tokens(text: str) -> set[str]:
+    return {t for t in _TOKEN.findall((text or "").lower()) if t not in _STOP and len(t) > 1}
+
+
+def title_similarity(a: str, b: str) -> float:
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def match_cross_store(
+    products: list[dict],
+    image_vectors: dict[str, np.ndarray],
+    image_threshold: float = 0.92,
+    title_threshold: float = 0.35,
+    neighbours: int = 10,
+) -> dict[str, list[str]]:
+    """
+    Group listings of the same physical product sold by different stores.
+
+    Two listings match when their CLIP image embeddings are very close AND they
+    agree on category AND (same brand OR similar titles OR same GTIN) AND their
+    prices are within 3x of each other. Image similarity alone over-matches
+    (plain black t-shirts all look alike), which is why the other checks exist.
+    """
+    import faiss
+
+    product_map = {p["_id"]: p for p in products}
+    ids = [pid for pid in image_vectors if pid in product_map]
+    if len(ids) < 2:
+        return {}
+    matrix = np.vstack([image_vectors[pid] for pid in ids]).astype("float32")
+    faiss.normalize_L2(matrix)
+    index = faiss.IndexFlatIP(matrix.shape[1])
+    index.add(matrix)
+    sims, nbrs = index.search(matrix, min(neighbours + 1, len(ids)))
+
+    parent = list(range(len(ids)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, pid in enumerate(ids):
+        a = product_map[pid]
+        for sim, j in zip(sims[i], nbrs[i]):
+            if j <= i or sim < image_threshold:
+                continue
+            b = product_map[ids[j]]
+            if a.get("source") == b.get("source"):
+                continue
+            if (a.get("category") or "") != (b.get("category") or ""):
+                continue
+            same_gtin = a.get("gtin") and a.get("gtin") == b.get("gtin")
+            same_brand = (a.get("brand") or "").strip().lower() == (b.get("brand") or "").strip().lower() != ""
+            if not (same_gtin or same_brand or title_similarity(a.get("name"), b.get("name")) >= title_threshold):
+                continue
+            pa, pb = float(a.get("price") or 0), float(b.get("price") or 0)
+            if pa <= 0 or pb <= 0 or max(pa, pb) / min(pa, pb) > 3:
+                continue
+            parent[find(i)] = find(j)
+
+    groups = defaultdict(list)
+    for i, pid in enumerate(ids):
+        groups[find(i)].append(pid)
+    result = {}
+    for members in groups.values():
+        if len(members) > 1 and len({product_map[m].get("source") for m in members}) > 1:
+            result[f"match_{len(result)}"] = sorted(members)
+    return result
 
 
 def find_cross_source_duplicates(

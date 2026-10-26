@@ -25,6 +25,10 @@ from analytics import SearchAnalytics
 from ingestion import create_cross_platform_dataset
 from deduplication import find_cross_source_duplicates, build_dedup_index, price_competitiveness_score, diversify_results
 from feedback_db import log_click_event, init_db
+from paths import CATALOG_MODE, CATALOG_PATH, INDEX_DIR, MATCHES_PATH
+from query_understanding import category_matches, KNOWN_CATEGORIES
+from collections import Counter
+import traceback
 
 app = FastAPI(title="Hybrid Product Search Engine API")
 
@@ -62,28 +66,75 @@ MOCK_SERVICES = os.getenv("MOCK_SERVICES", "false").lower() == "true"
 mongo_client = None
 db = None
 mock_products = []
+catalog_by_id = {}
+catalog_category_set = set()
 analytics = SearchAnalytics()
 index_metadata = {"version": "unavailable", "document_count": 0}
 
+
+def set_catalog(products):
+    """Replace the in-memory catalog and its id lookup."""
+    global mock_products, catalog_by_id, catalog_category_set
+    mock_products = products
+    catalog_by_id = {p["_id"]: p for p in products}
+    catalog_category_set = {str(p.get("category", "")).lower() for p in products if p.get("category")}
+
+
 def load_local_catalog():
-    """Load the bundled catalog when MongoDB has not been seeded yet."""
-    global mock_products
+    """Load the catalog file chosen in paths.py: the crawled live catalog, or the demo one."""
     if mock_products:
         return mock_products
-
-    service_dir = os.path.dirname(os.path.abspath(__file__))
-    for catalog_dir in ("/data", os.path.join(service_dir, "..", "data")):
-        for filename in ("products_2k.json", "products_100k_backup.json"):
-            path = os.path.join(catalog_dir, filename)
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    mock_products = json.load(f)
-                # The checked-in indexes are built from the 2K catalog.
-                mock_products = mock_products[:2000]
-                print(f"Loaded {len(mock_products)} products from local catalog: {filename}.")
-                return mock_products
-
+    if CATALOG_PATH and os.path.exists(CATALOG_PATH):
+        with open(CATALOG_PATH, "r", encoding="utf-8") as f:
+            set_catalog(json.load(f))
+        print(f"Loaded {len(mock_products)} products ({CATALOG_MODE} catalog) from {CATALOG_PATH}.")
     return mock_products
+
+
+def inline_fallback_products():
+    return [{
+        "_id": f"prod_{i}", "name": f"Libas Women Red Kurta {i}", "category": "kurta",
+        "price": 399, "mrp": 899, "discount_percent": 55, "rating": 4.2,
+        "review_count": 120, "in_stock": True, "color": ["red"], "tags": ["kurta"],
+        "embedding_text": f"Libas Women Red Kurta {i} kurta red"
+    } for i in range(100)]
+
+
+def hydrate(product_ids):
+    """Fetch full product records for candidate ids. Returns {id: product}."""
+    global MOCK_SERVICES
+    if not MOCK_SERVICES:
+        try:
+            products = list(db["products"].find({"_id": {"$in": product_ids}}))
+            if products:
+                return {p["_id"]: p for p in products}
+            # A fresh MongoDB volume has no products; the indexes refer to the local catalog.
+        except Exception as e:
+            print(f"MongoDB query failed: {e}. Falling back to the local catalog.")
+            MOCK_SERVICES = True
+    load_local_catalog()
+    return {pid: catalog_by_id[pid] for pid in product_ids if pid in catalog_by_id}
+
+
+def resolve_category_filter(explicit, intent):
+    """UI filters always apply; a parsed category only filters if it's one we actually know."""
+    if explicit:
+        return explicit.lower().strip()
+    guessed = (intent.category or "").lower().strip()
+    if guessed and (guessed in KNOWN_CATEGORIES or guessed in catalog_category_set):
+        return guessed
+    return None
+
+
+def cross_platform_info(dedup_info, product_map):
+    cheapest = catalog_by_id.get(dedup_info["cheapest_id"]) or product_map.get(dedup_info["cheapest_id"], {})
+    return {
+        "cheapest_price": dedup_info["cheapest_price"],
+        "cheapest_source": cheapest.get("source_name") or cheapest.get("source", "unknown"),
+        "cheapest_url": cheapest.get("source_url"),
+        "available_on": dedup_info["group_size"],
+        "price_rank": dedup_info["price_rank"],
+    }
 
 
 def catalog_products():
@@ -126,56 +177,28 @@ def explain_result(intent, product, ltr_score: float, rrf_score: float) -> list[
     reasons.append(f"rerank score {float(ltr_score):.3f}")
     return reasons
 
+if CATALOG_MODE == "live":
+    # The crawled catalog is served from memory; MongoDB isn't needed for product data.
+    MOCK_SERVICES = True
+    print(f"Live catalog mode: {CATALOG_PATH} with indexes in {INDEX_DIR}")
+
 if MOCK_SERVICES:
-    print("Running in MOCK_SERVICES mode. Databases are mocked.")
-    backup_path = None
-    for p in ["../data/products_2k.json", "data/products_2k.json", "../data/products_100k_backup.json", "data/products_100k_backup.json"]:
-        if os.path.exists(p):
-            backup_path = p
-            break
-        
-    if backup_path:
-        with open(backup_path, "r") as f:
-            mock_products = json.load(f)
-        mock_products = mock_products[:2000]
-        print(f"Loaded {len(mock_products)} products from {backup_path}.")
-    else:
-        mock_products = [{
-            "_id": f"prod_{i}", "name": f"Libas Women Red Kurta {i}", "category": "kurta",
-            "price": 399, "mrp": 899, "discount_percent": 55, "rating": 4.2,
-            "review_count": 120, "in_stock": True, "color": ["red"], "tags": ["kurta"],
-            "embedding_text": f"Libas Women Red Kurta {i} kurta red"
-        } for i in range(100)]
-        print(f"Generated {len(mock_products)} inline fallback products.")
+    print("Running in MOCK_SERVICES mode: products are served from the local catalog file.")
 else:
     try:
         mongo_client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=2000)
         db = mongo_client[DB_NAME]
-        # Ping check
         mongo_client.admin.command('ping')
         print("Connected to MongoDB successfully.")
     except Exception as e:
         print(f"MongoDB connection failed: {e}. Automatically falling back to MOCK_SERVICES mode.")
         MOCK_SERVICES = True
-        backup_path = None
-        for p in ["../data/products_2k.json", "data/products_2k.json", "../data/products_100k_backup.json", "data/products_100k_backup.json"]:
-            if os.path.exists(p):
-                backup_path = p
-                break
-            
-        if backup_path:
-            with open(backup_path, "r") as f:
-                mock_products = json.load(f)
-            mock_products = mock_products[:2000]
-            print(f"Loaded {len(mock_products)} products from {backup_path}.")
-        else:
-            mock_products = [{
-                "_id": f"prod_{i}", "name": f"Libas Women Red Kurta {i}", "category": "kurta",
-                "price": 399, "mrp": 899, "discount_percent": 55, "rating": 4.2,
-                "review_count": 120, "in_stock": True, "color": ["red"], "tags": ["kurta"],
-                "embedding_text": f"Libas Women Red Kurta {i} kurta red"
-            } for i in range(100)]
-            print(f"Generated {len(mock_products)} inline fallback products.")
+
+if MOCK_SERVICES:
+    load_local_catalog()
+    if not mock_products:
+        set_catalog(inline_fallback_products())
+        print(f"No catalog file found; generated {len(mock_products)} inline fallback products.")
 
 bm25 = BM25Retriever()
 faiss = FAISSRetriever()
@@ -212,11 +235,13 @@ def rebuild_indices_from_db():
         faiss.save()
 
         index_metadata = {
+            **index_metadata,
             "version": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+            "catalog_mode": CATALOG_MODE,
             "document_count": len(products),
             "rebuilt_at": datetime.now(timezone.utc).isoformat(),
         }
-        metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "index_metadata.json")
+        metadata_path = os.path.join(INDEX_DIR, "index_metadata.json")
         with open(metadata_path, "w", encoding="utf-8") as metadata_file:
             json.dump(index_metadata, metadata_file, indent=2)
         
@@ -228,7 +253,7 @@ def rebuild_indices_from_db():
         return False
 
 # Setup background scheduler for BM25 (rebuild every 5 mins if dirty)
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone="UTC")  # explicit, so odd TZ settings can't crash startup
 
 def check_and_rebuild_indices():
     global bm25_dirty
@@ -251,7 +276,7 @@ async def startup_event():
     faiss_loaded = faiss.load()
     clip_loaded = clip.load()
     global index_metadata
-    metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "index_metadata.json")
+    metadata_path = os.path.join(INDEX_DIR, "index_metadata.json")
     if os.path.exists(metadata_path):
         with open(metadata_path, "r", encoding="utf-8") as metadata_file:
             index_metadata = json.load(metadata_file)
@@ -268,7 +293,13 @@ async def startup_event():
         ltr_model.load()
     
     # Build cross-source deduplication index
-    if MOCK_SERVICES and mock_products:
+    if CATALOG_MODE == "live":
+        if os.path.exists(MATCHES_PATH):
+            with open(MATCHES_PATH, "r", encoding="utf-8") as fh:
+                groups = json.load(fh)
+            dedup_index = build_dedup_index(mock_products, groups)
+            print(f"Cross-store matches loaded: {len(groups)} products sold by more than one store")
+    elif MOCK_SERVICES and mock_products:
         try:
             dup_groups = find_cross_source_duplicates(clip, mock_products)
             dedup_index = build_dedup_index(mock_products, dup_groups)
@@ -337,24 +368,7 @@ async def search(
 
         # Step 4: fetch product details for top 100 merged candidates
         product_ids = [pid for pid, _ in merged]
-        products = []
-        if MOCK_SERVICES:
-            products = [p for p in mock_products if p["_id"] in product_ids]
-        else:
-            try:
-                cursor = db["products"].find({"_id": {"$in": product_ids}})
-                products = list(cursor)
-                if not products:
-                    # A fresh Docker MongoDB volume has no seeded products. The
-                    # retrieval indexes still refer to the bundled catalog, so
-                    # use it to hydrate candidates instead of returning zero hits.
-                    products = [p for p in load_local_catalog() if p["_id"] in product_ids]
-            except Exception as e:
-                print(f"MongoDB query failed: {e}. Falling back to in-memory mock products.")
-                MOCK_SERVICES = True
-                products = [p for p in load_local_catalog() if p["_id"] in product_ids]
-                
-        product_map = {p["_id"]: p for p in products}
+        product_map = hydrate(product_ids)
 
         # Step 5: rerank
         feature_vectors = []
@@ -404,7 +418,7 @@ async def search(
         filtered_results = []
         
         # Active filters (UI overrides or LLM extracted intent)
-        filter_category = category.lower().strip() if category else (intent.category.lower().strip() if intent.category else None)
+        filter_category = resolve_category_filter(category, intent)
         filter_max_price = max_price if max_price is not None else intent.max_price
         filter_min_price = min_price
         filter_min_rating = min_rating if min_rating is not None else intent.min_rating
@@ -413,28 +427,8 @@ async def search(
             product = product_map[pid]
             
             # Category match check
-            if filter_category:
-                p_cat = product.get("category", "").lower().strip()
-                p_subcat = product.get("subcategory", "").lower().strip()
-                p_name = product.get("name", "").lower()
-                p_tags = [str(t).lower() for t in product.get("tags", [])]
-                
-                synonyms = {
-                    "kurta": ["kurta", "kurti", "ethnic"],
-                    "shirt": ["shirt", "shirts"],
-                    "tshirt": ["tshirt", "t-shirt", "tee"],
-                    "jeans": ["jeans", "denim"],
-                    "dress": ["dress", "frock", "gown"],
-                    "shoes": ["shoes", "sneakers", "footwear"]
-                }
-                
-                candidates = [filter_category]
-                if filter_category in synonyms:
-                    candidates.extend(synonyms[filter_category])
-                    
-                matched = (p_cat == filter_category) or any(c in p_subcat or c in p_name or c in p_tags for c in candidates)
-                if not matched:
-                    continue
+            if filter_category and not category_matches(product, filter_category):
+                continue
                 
             # Price check
             price = product.get("price", 0)
@@ -444,7 +438,7 @@ async def search(
                 continue
                 
             # Rating check
-            rating = product.get("rating", 0.0)
+            rating = product.get("rating") or 0.0
             if filter_min_rating is not None and rating < filter_min_rating:
                 continue
                 
@@ -463,12 +457,7 @@ async def search(
             enriched_product["source"] = product.get("source", "unknown")
             dedup_info = dedup_index.get(pid)
             if dedup_info:
-                enriched_product["_cross_platform"] = {
-                    "cheapest_price": dedup_info["cheapest_price"],
-                    "cheapest_source": product_map.get(dedup_info["cheapest_id"], {}).get("source", "unknown"),
-                    "available_on": dedup_info["group_size"],
-                    "price_rank": dedup_info["price_rank"],
-                }
+                enriched_product["_cross_platform"] = cross_platform_info(dedup_info, product_map)
             
             filtered_results.append(enriched_product)
 
@@ -489,7 +478,8 @@ async def search(
             "results": page_results
         }
     except Exception as e:
-        print(f"Search endpoint error: {e}", exc_info=True)
+        print(f"Search endpoint error: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @app.post("/search/image")
@@ -567,20 +557,7 @@ async def search_image(
 
         # Step 4: Fetch product candidates
         product_ids = [pid for pid, _ in merged]
-        products = []
-        if MOCK_SERVICES:
-            products = [p for p in mock_products if p["_id"] in product_ids]
-        else:
-            try:
-                cursor = db["products"].find({"_id": {"$in": product_ids}})
-                products = list(cursor)
-                if not products:
-                    products = [p for p in load_local_catalog() if p["_id"] in product_ids]
-            except Exception as e:
-                print(f"MongoDB query failed: {e}. Falling back to local catalog.")
-                products = [p for p in load_local_catalog() if p["_id"] in product_ids]
-
-        product_map = {p["_id"]: p for p in products}
+        product_map = hydrate(product_ids)
 
         # Step 5: LTR Re-ranking
         feature_vectors = []
@@ -620,7 +597,7 @@ async def search_image(
 
         # Step 6: Post-filtering & Response enrichment
         filtered_results = []
-        filter_category = category.lower().strip() if category else intent.category
+        filter_category = resolve_category_filter(category, intent)
         filter_min_price = min_price if min_price is not None else getattr(intent, 'min_price', None)
         filter_max_price = max_price if max_price is not None else getattr(intent, 'max_price', None)
         filter_min_rating = min_rating if min_rating is not None else getattr(intent, 'min_rating', None)
@@ -628,27 +605,8 @@ async def search_image(
         for pid, ltr_score in ranked:
             product = product_map[pid]
 
-            if filter_category:
-                p_cat = product.get("category", "").lower().strip()
-                p_subcat = product.get("subcategory", "").lower().strip()
-                p_name = product.get("name", "").lower()
-                p_tags = [str(t).lower() for t in product.get("tags", [])]
-
-                synonyms = {
-                    "kurta": ["kurta", "kurti", "ethnic"],
-                    "shirt": ["shirt", "shirts"],
-                    "tshirt": ["tshirt", "t-shirt", "tee"],
-                    "jeans": ["jeans", "denim"],
-                    "dress": ["dress", "frock", "gown"],
-                    "shoes": ["shoes", "sneakers", "footwear"]
-                }
-                candidates = [filter_category]
-                if filter_category in synonyms:
-                    candidates.extend(synonyms[filter_category])
-
-                matched = (p_cat == filter_category) or any(c in p_subcat or c in p_name or c in p_tags for c in candidates)
-                if not matched:
-                    continue
+            if filter_category and not category_matches(product, filter_category):
+                continue
 
             price = product.get("price", 0)
             if filter_max_price is not None and price > filter_max_price:
@@ -656,7 +614,7 @@ async def search_image(
             if filter_min_price is not None and price < filter_min_price:
                 continue
 
-            rating = product.get("rating", 0.0)
+            rating = product.get("rating") or 0.0
             if filter_min_rating is not None and rating < filter_min_rating:
                 continue
 
@@ -672,12 +630,7 @@ async def search_image(
             enriched_product["source"] = product.get("source", "unknown")
             dedup_info = dedup_index.get(pid)
             if dedup_info:
-                enriched_product["_cross_platform"] = {
-                    "cheapest_price": dedup_info["cheapest_price"],
-                    "cheapest_source": product_map.get(dedup_info["cheapest_id"], {}).get("source", "unknown"),
-                    "available_on": dedup_info["group_size"],
-                    "price_rank": dedup_info["price_rank"],
-                }
+                enriched_product["_cross_platform"] = cross_platform_info(dedup_info, product_map)
 
             filtered_results.append(enriched_product)
 
@@ -758,7 +711,7 @@ def admin_ingest_products(payload: dict):
     if MOCK_SERVICES or db is None:
         existing = {product["_id"]: product for product in catalog_products()}
         existing.update({product["_id"]: product for product in products})
-        mock_products = list(existing.values())
+        set_catalog(list(existing.values()))
         MOCK_SERVICES = True
     else:
         for product in products:
@@ -787,9 +740,19 @@ def analytics_summary():
 @app.get("/stats")
 def stats():
     sources = set()
-    if MOCK_SERVICES and mock_products:
-        sources = set(p.get("source", "unknown") for p in mock_products)
+    catalog = mock_products if MOCK_SERVICES else []
+    if catalog:
+        sources = set(p.get("source", "unknown") for p in catalog)
+    store_counts = Counter((p.get("source", "unknown"), p.get("source_name") or p.get("source", "unknown")) for p in catalog)
+    category_counts = Counter(p.get("category") for p in catalog if p.get("category"))
     return {
+        "catalog": {
+            "mode": CATALOG_MODE,
+            "products": len(catalog),
+            "stores": [{"id": sid, "name": name, "count": n} for (sid, name), n in store_counts.most_common()],
+            "top_categories": [{"name": c, "count": n} for c, n in category_counts.most_common(12)],
+            "last_scraped_at": max((p.get("scraped_at", "") for p in catalog), default="") or None,
+        },
         "total_products_indexed": len(bm25.product_ids),
         "faiss_index_size": faiss.index.ntotal,
         "clip_index_size": clip.index.ntotal,
