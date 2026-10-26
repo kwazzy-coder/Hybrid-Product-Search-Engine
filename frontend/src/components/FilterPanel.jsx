@@ -1,9 +1,15 @@
 import React from 'react';
 import './FilterPanel.css';
 
-const CATEGORIES = ['All', 'Kurta', 'Shirt', 'Tshirt', 'Jeans', 'Dress', 'Shoes'];
+const DEFAULT_CATEGORIES = ['kurta', 'shirt', 'tshirt', 'jeans', 'dress', 'shoes'];
+const MAX_PRICE = 10000;
 
-export function FilterPanel({ filters, onChange }) {
+const label = (cat) => (cat === 'tshirt' ? 'T-shirt' : cat.charAt(0).toUpperCase() + cat.slice(1));
+
+export function FilterPanel({ filters, onChange, categories }) {
+  // Use the categories that actually exist in the indexed catalog when the API reports them.
+  const CATEGORIES = ['All', ...(categories?.length ? categories : DEFAULT_CATEGORIES)];
+
   const handleCategoryClick = (cat) => {
     onChange({
       ...filters,
@@ -14,7 +20,7 @@ export function FilterPanel({ filters, onChange }) {
   const handlePriceChange = (e) => {
     onChange({
       ...filters,
-      maxPrice: e.target.value === '3000' ? null : parseFloat(e.target.value)
+      maxPrice: Number(e.target.value) >= MAX_PRICE ? null : parseFloat(e.target.value)
     });
   };
 
@@ -65,7 +71,7 @@ export function FilterPanel({ filters, onChange }) {
                 onClick={() => handleCategoryClick(cat)}
                 className={`chip-btn ${isSelected ? 'selected' : ''}`}
               >
-                {cat}
+                {cat === 'All' ? cat : label(cat)}
               </button>
             );
           })}
@@ -77,21 +83,21 @@ export function FilterPanel({ filters, onChange }) {
         <div className="section-header-row">
           <h4>Max Price</h4>
           <span className="price-display">
-            {filters.maxPrice ? `₹${filters.maxPrice}` : 'Any'}
+            {filters.maxPrice ? `₹${filters.maxPrice.toLocaleString('en-IN')}` : 'Any'}
           </span>
         </div>
         <input
           type="range"
           min="200"
-          max="3000"
-          step="50"
-          value={filters.maxPrice || 3000}
+          max={MAX_PRICE}
+          step="100"
+          value={filters.maxPrice || MAX_PRICE}
           onChange={handlePriceChange}
           className="range-slider"
         />
         <div className="range-labels">
           <span>₹200</span>
-          <span>₹3000+</span>
+          <span>₹{MAX_PRICE.toLocaleString('en-IN')}+</span>
         </div>
       </div>
 

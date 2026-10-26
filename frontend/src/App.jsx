@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { SearchBar } from './components/SearchBar';
 import { FilterPanel } from './components/FilterPanel';
 import { ResultsList } from './components/ResultsList';
 import { useSearch } from './hooks/useSearch';
 import './App.css';
+
+const API_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8000';
 
 export default function App() {
   const [query, setQuery] = useState('');
@@ -14,6 +16,20 @@ export default function App() {
     minRating: null,
     inStockOnly: true
   });
+
+  // Which catalog is indexed (live crawl or demo), its stores and categories.
+  const [catalog, setCatalog] = useState(null);
+  useEffect(() => {
+    fetch(`${API_URL}/api/stats`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setCatalog(data?.catalog || null))
+      .catch(() => setCatalog(null));
+  }, []);
+  const isLive = catalog?.mode === 'live';
+  const storeNames = (catalog?.stores || []).map((s) => s.name).join(', ');
+  const updated = catalog?.last_scraped_at
+    ? new Date(catalog.last_scraped_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+    : null;
 
   const { loading, error, results, total, intent, hasMore } = useSearch(
     query,
@@ -117,7 +133,11 @@ export default function App() {
       />
 
       <div className="main-content">
-        <FilterPanel filters={filters} onChange={handleFilterChange} />
+        <FilterPanel
+          filters={filters}
+          onChange={handleFilterChange}
+          categories={(catalog?.top_categories || []).map((c) => c.name)}
+        />
 
         <div className="results-wrapper">
           {error && (
@@ -140,7 +160,9 @@ export default function App() {
           </div>
 
           <p className="catalog-disclaimer">
-            Demo catalog — marketplace buttons find similar products; they are not exact listing links.
+            {isLive
+              ? `Live prices from ${storeNames || 'brand websites'}${updated ? ` · updated ${updated}` : ''}. Click a product to open it on the store's site.`
+              : 'Demo catalog with synthetic prices and stores. Run the crawler to index real products.'}
           </p>
 
           <ResultsList
