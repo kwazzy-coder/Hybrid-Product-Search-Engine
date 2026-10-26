@@ -1,0 +1,87 @@
+# Fashion sites the crawler collects from.
+#
+# Every site below was checked on 26 Oct 2026: it publishes its catalog as
+# public product data (Shopify's /products.json) and its robots.txt allows
+# crawlers to read it. The crawler re-checks robots.txt on every run and skips
+# anything that becomes disallowed.
+#
+# To add a store, run:   python -m crawler check https://www.example.com
+# It tells you whether the store is crawlable and prints a ready-made block.
+
+[crawler]
+user_agent = "HybridSearchBot/1.0"
+# Put an email or GitHub URL here (or set CRAWLER_CONTACT) so a site owner
+# who sees your bot in their logs can reach you. Strongly recommended.
+contact = ""
+min_delay_seconds = 2.0        # gap between requests to the same site
+image_delay_seconds = 0.5      # gap between image downloads from the CDN
+max_products_per_site = 1000
+cache_dir = "data/http_cache"
+cache_max_age_hours = 12       # re-running within 12h reuses cached pages
+db_path = "data/crawler.db"
+export_path = "data/products_live.json"
+images_dir = "data/images_live"
+image_size = 400
+
+# ---------------------------------------------------------------- women's ethnic
+[[site]]
+id = "libas"
+name = "Libas"
+url = "https://www.libas.in"
+platform = "shopify"
+brand = "Libas"
+default_gender = "women"
+
+[[site]]
+id = "suta"
+name = "Suta"
+url = "https://suta.in"
+platform = "shopify"
+brand = "Suta"
+default_gender = "women"
+
+# ---------------------------------------------------------------- menswear
+[[site]]
+id = "powerlook"
+name = "Powerlook"
+url = "https://www.powerlook.in"
+platform = "shopify"
+brand = "Powerlook"
+default_gender = "men"
+
+[[site]]
+id = "thebearhouse"
+name = "The Bear House"
+url = "https://thebearhouse.com"
+platform = "shopify"
+brand = "The Bear House"
+default_gender = "men"
+
+# ---------------------------------------------------------------- streetwear
+[[site]]
+id = "bonkerscorner"
+name = "Bonkers Corner"
+url = "https://www.bonkerscorner.com"
+platform = "shopify"
+brand = "Bonkers Corner"
+
+# ---------------------------------------------------------------- not enabled
+# Rare Rabbit's robots.txt allows /products.json, but its comments ask automated
+# agents to use its official commerce (UCP/MCP) interface instead. Left off out of
+# respect for that request.
+# [[site]]
+# id = "rarerabbit"
+# name = "Rare Rabbit"
+# url = "https://thehouseofrare.com"
+# platform = "shopify"
+
+# Example of a non-Shopify site, read from its sitemap and the structured product
+# data on each page. Untested here: run `python -m crawler check` on it first.
+# [[site]]
+# id = "bewakoof"
+# name = "Bewakoof"
+# url = "https://www.bewakoof.com"
+# platform = "sitemap"
+# sitemaps = ["https://www.bewakoof.com/products_men.xml", "https://www.bewakoof.com/products_women.xml"]
+# product_url_pattern = "/p/"
+# max_products = 300

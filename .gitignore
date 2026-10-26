@@ -21,3 +21,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Crawled data: don't commit or republish store content
+data/products_live.json
+data/crawler.db
+data/images_live/
+data/http_cache/
+search_service/models_live/
+.pytest_cache/
