@@ -1,8 +1,10 @@
-# 🛍️ Hybrid AI Product Search Engine
+# 🧵 Dhaaga: hybrid search across India's fashion brands
 
-A production-grade, multimodal e-commerce product search engine combining **Lexical Keyword Search (BM25)**, **Dense Text Vector Search (FAISS + MiniLM-L6-v2)**, and **Text-to-Image Cross-Modal Visual Search (CLIP ViT-B/32)**. Results are fused using **Reciprocal Rank Fusion (RRF)**, re-ranked via a **12-feature LightGBM LambdaRank model**, and diversified across major e-commerce platforms (*Amazon, Myntra, Ajio, Flipkart*).
+[![CI](https://github.com/kwazzy-coder/Hybrid-Product-Search-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/kwazzy-coder/Hybrid-Product-Search-Engine/actions/workflows/ci.yml)
 
-Includes an automated **SQLite click-feedback logging pipeline**, **hard negative mining**, and an **offline evaluation harness** computing exact NDCG@5 and NDCG@10 metrics.
+*Dhaaga* (धागा) is Hindi for thread: one thread through many stores. It's a multimodal fashion search engine over **real products crawled from Indian fashion brands**, combining **Lexical Keyword Search (BM25)**, **Dense Text Vector Search (FAISS + MiniLM-L6-v2)**, and **Text-to-Image and Photo Search (CLIP ViT-B/32)**. Results are fused using **Reciprocal Rank Fusion (RRF)**, re-ranked via a **12-feature LightGBM LambdaRank model**, and filtered by category, price and **size in stock**.
+
+Includes **click logging with serve-time feature logging**, **LTR retraining on real clicks**, an **offline evaluation harness on the live catalog** (LLM-assisted relevance labels), **price history and price-drop alerts**, CI, and a one-container deployment.
 
 ---
 
@@ -10,10 +12,14 @@ Includes an automated **SQLite click-feedback logging pipeline**, **hard negativ
 
 * **⚡ 3-Way Parallel Hybrid Retrieval**: Queries execute across BM25, FAISS dense text, and CLIP text-to-image indexes simultaneously using `asyncio.gather`, merged via scale-invariant Reciprocal Rank Fusion ($k=60$).
 * **🎯 12-Feature Learning-to-Rank (LTR)**: LightGBM LambdaRank model (`objective="lambdarank"`, `metric="ndcg"`) optimized for top-K slot precision based on category match, color binding, ratings, discounts, CLIP visual similarity, and cross-platform price competitiveness.
-* **🖼️ Image-to-Image & Multimodal Search**: `POST /search/image` endpoint supporting pure visual search (upload product image $\rightarrow$ FAISS vector lookup) or multimodal search (image upload + text prompt like *"under $50"*).
-* **🛍️ Cross-Platform Aggregation & CLIP Deduplication**: Schema normalization layer unifying multi-retailer listings (*Amazon, Myntra, Ajio, Flipkart*) and CLIP image embedding cosine similarity (>0.95) to detect identical physical products and surface real-time price comparisons.
-* **🔄 Click Feedback Mining & Hard Negatives**: SQLite logger (`click_events` table) storing user clicks, paired with an automated extractor (`build_hard_negatives.py`) that mines top-10 unclicked items as hard negatives for LTR retraining.
-* **📊 Offline Evaluation Harness**: Benchmarking script (`evaluate.py`) comparing Re-ranking OFF vs ON against ground-truth judgements, calculating exact NDCG@5 / NDCG@10 metrics (**+200% lift** on multi-attribute queries).
+* **🖼️ Search by Photo**: Upload or drop a photo in the search bar to find visually similar products (CLIP image embeddings), optionally narrowed with text like *"under 1500"*.
+* **📏 Size in Stock**: Only show items available in your size, from a size chip or the query itself (*"black shirt size L"*, *"jeans 32 waist"*). Sizes are normalized across stores (XXL/2XL, UK 8/8, Free Size).
+* **🕸️ Live Catalog from Real Fashion Stores**: A polite, robots.txt-aware crawler (`crawler/`) collects real products from Indian fashion brands (Libas, Suta, Powerlook, The Bear House, Bonkers Corner), with real prices, MRP, sizes, stock and product links, and tracks price history for price-drop badges. See [`crawler/README.md`](crawler/README.md).
+* **🛍️ Cross-Store Matching**: In live mode, listings of the same physical product in different stores are matched by CLIP image similarity (≥0.92), confirmed by brand/title similarity, category and price sanity checks, to show where it's cheapest. The demo catalog simulates this with synthetic duplicates across *Amazon, Myntra, Ajio, Flipkart* labels.
+* **🔄 Learning from Real Clicks**: Every search logs what was shown together with the exact 12 features each result had at that moment; clicks are logged with their position. `train_ltr_live.py` retrains on these with skip-above negatives (to reduce position bias) and only ships a model that beats the current one on held-out searches.
+* **📊 Evaluation on the Live Catalog**: `eval_live.py` pools candidates from every pipeline stage, labels them 0–3 with Claude (spot-checked by hand), and reports NDCG@5/10, Recall@20, MRR and latency per stage, so each component's contribution is measured.
+* **🔔 Price History & Alerts**: Daily crawls record price changes; cards show a price-history line, "lowest in 30 days" and price-drop badges, and shoppers can ask to be emailed when a product drops below their price.
+* **🧪 CI & Deployment**: GitHub Actions runs the test suite and frontend lint/build on every push; one container serves the site and API (lite build fits a 512 MB free tier, see [`DEPLOY.md`](DEPLOY.md)).
 
 ---
 
@@ -92,7 +98,7 @@ Includes an automated **SQLite click-feedback logging pipeline**, **hard negativ
 ## 🚀 Quick Start Guide
 
 ### Prerequisites
-* **Python**: `3.10+` (Python 3.12 recommended)
+* **Python**: `3.11+` (Python 3.12 recommended)
 * **Node.js**: `v18+` (for React frontend)
 
 ---
@@ -117,7 +123,20 @@ cd ..
 
 ### 2. Dataset & Vector Index Building
 
-Build product catalog (2,300 items across Amazon, Myntra, Ajio, Flipkart) and generate BM25, FAISS, and CLIP indexes:
+**Option A: live catalog from real fashion stores (recommended)**
+
+```bash
+pip install -r crawler/requirements.txt
+python -m crawler refresh                    # crawl stores, export catalog, download thumbnails
+cd search_service
+python scripts/build_live_index.py           # BM25 + MiniLM + CLIP indexes + cross-store matching
+cd ..
+```
+
+Set your contact in `crawler/sites.toml` first. Details, scheduling and the list of stores are in [`crawler/README.md`](crawler/README.md).
+The API uses the live catalog automatically once its indexes exist (`CATALOG=demo` switches back).
+
+**Option B: demo catalog** (2,300 HuggingFace fashion items with synthetic prices, ratings and store labels):
 
 ```bash
 cd search_service
@@ -145,32 +164,40 @@ npm run dev
 
 ---
 
-## 🔄 Click Feedback & LTR Retraining Pipeline
+## 🔄 Learning from Clicks (LTR Retraining)
 
-You can simulate user behavior, log clicks to SQLite, mine hard negatives, and retrain the LightGBM LTR model:
+The website logs every search's results with their ranking features, and every click with its position. Once you've collected 30+ searches with clicks:
 
 ```bash
-# Step 1: Simulate 75 user search & click sessions into SQLite (feedback.db)
-python search_service/scripts/simulate_clicks.py --sessions 75
-
-# Step 2: Extract top-10 unclicked items as hard negatives
-python search_service/scripts/build_hard_negatives.py
-
-# Step 3: Retrain LightGBM LambdaRank model on hybrid synthetic + click feedback dataset
-python search_service/scripts/retrain_ltr.py --mode hybrid
+cd search_service
+python scripts/train_ltr_live.py
 ```
+
+It trains on real behaviour (clicked = positive; shown above a click but skipped = negative; results below the last click are dropped as probably unseen), compares against the current model on the newest 20% of searches, and saves to `models_live/ltr_model.lgb` only if it's better. Restart the API or `POST /admin/reload_ltr` to use it.
+
+<details><summary>Older synthetic pipeline (demo catalog)</summary>
+
+`simulate_clicks.py` → `build_hard_negatives.py` → `retrain_ltr.py --mode hybrid`. These train on simulated clicks, so they demonstrate the mechanics rather than learn real preferences.
+</details>
 
 ---
 
-## 📊 Offline Evaluation Harness Benchmark Results
+## 📊 Evaluation
 
-Run the offline benchmark evaluation against labeled ground-truth judgements:
+Measure search quality on the live catalog, stage by stage:
 
 ```bash
-python search_service/scripts/evaluate.py
+cd search_service
+python scripts/eval_live.py pool      # candidates for the 40 queries in data/eval/queries.txt
+python scripts/eval_live.py judge     # label 0-3 with Claude (needs ANTHROPIC_API_KEY), or label by hand in data/eval/labels.csv
+python scripts/eval_live.py run       # NDCG@5/10, Recall@20, MRR, latency -> data/eval/results.md
 ```
 
-### Benchmark Metrics (Re-ranking OFF vs ON)
+Spot-check the LLM labels in `data/eval/labels.csv` before trusting the numbers, then paste `data/eval/results.md` here.
+
+<details><summary>Earlier benchmark on the synthetic demo catalog</summary>
+
+`python search_service/scripts/evaluate.py` compares re-ranking off vs on for the demo catalog. Its relevance labels come from the same category/colour rules used to simulate the training clicks, so treat it as a sanity check rather than a quality measure. Mean NDCG@5 went from 0.890 (RRF) to 0.905 (LTR).
 
 ```
 ========================================================================================
@@ -186,7 +213,18 @@ black formal shoes       | 1.0000        | 1.0000        | +0.0%      | 1.0000
 MEAN AGGREGATE METRICS   | 0.8900        | 0.9052        | +1.7%      | 0.8963       
 ========================================================================================
 ```
-*Detailed breakdown saved to [`data/eval_results.json`](data/eval_results.json)*.
+</details>
+
+---
+
+## 🧪 Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+The crawler is tested against local fake stores (pagination, robots.txt blocks, 429 back-off, 403 refusals, price history), and the API end to end with FastAPI's test client (search, size filter, click and impression logging, alerts, photo search, lite mode).
 
 ---
 
@@ -194,22 +232,21 @@ MEAN AGGREGATE METRICS   | 0.8900        | 0.9052        | +1.7%      | 0.8963
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/search?q={query}` | Executes 3-way hybrid search + LTR re-ranking + source diversity |
-| `POST`| `/api/search/image` | Image-to-image or multimodal search (`file` image + optional `q` text) |
-| `POST`| `/api/feedback` | Logs user click interaction `{query, shown_results, clicked_id}` to SQLite |
+| `GET` | `/api/search?q={query}` | 3-way hybrid search + LTR re-ranking + source diversity. Filters: `category`, `min_price`, `max_price`, `min_rating`, `in_stock_only`, `size` |
+| `POST`| `/api/search/image` | Photo search (`file` image + optional `q` text), same filters |
+| `POST`| `/api/feedback` | Logs a click `{query, query_id, clicked_id, position}` (impressions are logged automatically) |
+| `POST`| `/api/alerts` | Price-drop alert `{product_id, target_price, email}`, checked after each crawl |
 | `GET` | `/api/stats` | Returns index sizes, vector dimensions, and cross-platform statistics |
 | `GET` | `/api/suggestions?q={q}`| Autocomplete search suggestions |
 | `GET` | `/docs` | Interactive Swagger API Documentation |
 
 ---
 
-## 🐳 Docker Deployment
+## 🐳 Deployment
 
-Run the full stack inside containers via Docker Compose:
+One container serves the website and the API. `Dockerfile` is the full engine (~2 GB memory); `Dockerfile.lite` is BM25 + re-ranking and fits a 512 MB free tier. `render.yaml` deploys the lite build to Render for free. See [`DEPLOY.md`](DEPLOY.md), including what to check before publishing store data.
 
-```bash
-docker-compose up --build
-```
+The original multi-service setup (MongoDB, Redis, gateway) still runs with `docker-compose up --build`.
 
 ---
 

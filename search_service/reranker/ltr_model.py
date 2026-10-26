@@ -2,21 +2,30 @@ import os
 import lightgbm as lgb
 import numpy as np
 
+def default_model_path() -> str:
+    """A model retrained on live clicks (models_live/ltr_model.lgb) wins over the original one."""
+    from paths import INDEX_DIR
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    search_service_dir = os.path.dirname(current_dir)
+    live_model = os.path.join(INDEX_DIR, "ltr_model.lgb")
+    if os.path.exists(live_model):
+        return live_model
+    return os.path.join(search_service_dir, "models", "ltr_model.lgb")
+
+
 class LTRModel:
     def __init__(self, model_path=None):
-        if model_path is None:
-            # Construct path relative to this file's location
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
-            model_path = os.path.join(search_service_dir, "models", "ltr_model.lgb")
-        self.model_path = model_path
+        self.model_path = model_path or default_model_path()
         self.model = None
+        self.version = "none"
         self.load()
 
     def load(self):
         if os.path.exists(self.model_path):
             try:
                 self.model = lgb.Booster(model_file=self.model_path)
+                stamp = int(os.path.getmtime(self.model_path))
+                self.version = f"{os.path.basename(os.path.dirname(self.model_path))}/{os.path.basename(self.model_path)}@{stamp}"
                 print(f"LightGBM LTR model successfully loaded from {self.model_path}.")
                 return True
             except Exception as e:

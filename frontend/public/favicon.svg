@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <mask id="eye">
+      <rect width="64" height="64" fill="white"/>
+      <rect x="-3.4" y="-1.1" width="6.8" height="2.2" rx="1.1" fill="black" transform="translate(41 41) rotate(45)"/>
+    </mask>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#111827"/>
+  <path d="M33.6 39.8 A 4.4 4.4 0 0 1 39.8 33.6 L 58 58 Z" fill="#E2E8F0" mask="url(#eye)"/>
+  <circle cx="26" cy="26" r="14" fill="none" stroke="#F5A524" stroke-width="5.4"/>
+</svg>

@@ -238,3 +238,10 @@
   transform: translateX(20px);
   background-color: white;
 }
+
+/* Single-column layout: a sticky panel would sit on top of the results while scrolling. */
+@media (max-width: 1120px) {
+  .filter-panel {
+    position: static;
+  }
+}

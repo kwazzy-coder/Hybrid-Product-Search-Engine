@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+frontend/dist
+data/http_cache
+data/crawler.db
+data/feedback.db
+data/alerts_outbox.txt
+data/eval/labels.csv
+gateway
+ingestion_service
+models
+*.zip

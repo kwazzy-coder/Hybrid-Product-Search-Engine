@@ -1,0 +1,15 @@
+# Lite deployment (SEARCH_MODE=lite): BM25 + LightGBM re-ranker, no torch / sentence-transformers / CLIP.
+# Fits 512 MB free hosting tiers. Use requirements.txt for the full engine.
+fastapi
+uvicorn[standard]
+pymongo
+redis
+rank-bm25
+lightgbm
+numpy
+apscheduler
+pydantic
+faiss-cpu
+Pillow
+python-multipart
+requests

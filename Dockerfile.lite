@@ -1,0 +1,27 @@
+# Lite engine in one container (fits 512 MB, e.g. Render's free tier):
+# BM25 + LightGBM re-ranking + filters + sizes + price history. No vector or photo search, no torch.
+#   docker build -f Dockerfile.lite -t hybrid-search-lite .
+#   docker run -p 8000:8000 -e CRAWL_ON_START=1 -e CRAWLER_CONTACT=you@example.com hybrid-search-lite
+
+FROM node:20-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+ENV VITE_GATEWAY_URL=""
+RUN npm run build
+
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+COPY search_service/requirements-lite.txt /tmp/requirements-lite.txt
+RUN pip install -r /tmp/requirements-lite.txt
+
+COPY . /app
+COPY --from=frontend /frontend/dist /app/frontend_dist
+RUN chown -R 1000:1000 /app
+USER 1000
+ENV FRONTEND_DIST=/app/frontend_dist SEARCH_MODE=lite PORT=8000
+EXPOSE 8000
+CMD ["sh", "deploy/start.sh"]

@@ -1,0 +1,3 @@
+-r search_service/requirements-lite.txt
+pytest
+httpx

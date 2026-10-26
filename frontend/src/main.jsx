@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource/rozha-one/latin-400.css'   // wordmark typeface, self-hosted
 import './index.css'
 import App from './App.jsx'
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { ProductCard } from './ProductCard';
 import './ResultsList.css';
 
-export function ResultsList({ products, loading, onLoadMore, hasMore, page }) {
+export function ResultsList({ products, loading, onLoadMore, hasMore, page, onProductOpen, alertsEnabled }) {
   // Skeleton Loader elements
   const Skeletons = () => (
     <div className="products-grid">
@@ -40,7 +40,7 @@ export function ResultsList({ products, loading, onLoadMore, hasMore, page }) {
     <div className="results-container animate-fade-in">
       <div className="products-grid">
         {products.map((product) => (
-          <ProductCard key={product._id} product={product} />
+          <ProductCard key={product._id} product={product} onOpen={onProductOpen} alertsEnabled={alertsEnabled} />
         ))}
       </div>
 

@@ -21,3 +21,21 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Crawled data: don't commit or republish store content
+data/products_live.json
+data/crawler.db
+data/images_live/
+data/http_cache/
+search_service/models_live/
+.pytest_cache/
+
+# Clicks, impressions and price-alert emails: personal data, never commit.
+# (It was committed before; untrack it once with: git rm --cached data/feedback.db)
+data/feedback.db
+data/alerts_outbox.txt
+# Evaluation labels contain store product data; results.md is fine to commit
+data/eval/labels.csv
+data/eval/results.json
+.venv/
+frontend/dist/

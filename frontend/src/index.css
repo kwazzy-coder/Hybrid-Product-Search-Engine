@@ -127,14 +127,6 @@ header {
   gap: 12px;
 }
 
-.logo h1 {
-  font-size: 1.5rem;
-  font-weight: 800;
-  font-family: var(--font-title);
-  margin: 0;
-  line-height: 1;
-}
-
 .main-content {
   display: grid;
   grid-template-columns: 280px 1fr;

@@ -221,7 +221,8 @@ def build_clip_index(items, products):
         
         with torch.no_grad():
             inputs = processor(images=images, return_tensors="pt", padding=True).to(device)
-            image_features = model.get_image_features(**inputs)
+            from retrieval.clip_retriever import embedding_tensor
+            image_features = embedding_tensor(model.get_image_features(**inputs))
             # L2 normalize for cosine similarity
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             embeddings = image_features.cpu().numpy().astype("float32")
@@ -242,6 +243,7 @@ def build_clip_index(items, products):
     # Build FAISS index
     import faiss
     import pickle
+    from retrieval.ids import stable_id
 
     dim = all_embeddings.shape[1]  # 512
     index = faiss.IndexIDMap(faiss.IndexFlatIP(dim))
@@ -249,7 +251,7 @@ def build_clip_index(items, products):
     id_map = {}
     int_ids = []
     for pid in all_ids:
-        fid = int(hash(pid) & 0x7FFFFFFFFFFFFFFF)
+        fid = stable_id(pid)
         int_ids.append(fid)
         id_map[fid] = pid
     

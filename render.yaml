@@ -1,16 +1,21 @@
+# Render Blueprint: one free web service running the lite build (BM25 + re-ranker, fits 512 MB).
+# The repo holds no scraped data, so on each start the container crawls a small catalog
+# (CRAWL_MAX_PRODUCTS per store) and builds its index. Free services sleep after 15 minutes
+# idle; the first visit after that takes about a minute.
 services:
   - type: web
-    name: hybrid-search-api
-    runtime: python
-    buildCommand: pip install -r search_service/requirements.txt
-    startCommand: cd search_service && uvicorn main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: MONGO_URL
-        sync: false
-      - key: MOCK_SERVICES
-        value: "true"
-      - key: TRANSFORMERS_NO_TF
-        value: "1"
-      - key: TF_CPP_MIN_LOG_LEVEL
-        value: "3"
+    name: dhaaga
+    runtime: docker
     plan: free
+    dockerfilePath: ./Dockerfile.lite
+    dockerContext: .
+    healthCheckPath: /api/stats
+    envVars:
+      - key: CRAWL_ON_START
+        value: "1"
+      - key: CRAWL_MAX_PRODUCTS
+        value: "200"
+      - key: CRAWLER_CONTACT
+        sync: false
+      - key: ALERTS_ENABLED
+        value: "false"

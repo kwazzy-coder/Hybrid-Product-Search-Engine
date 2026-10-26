@@ -3,6 +3,8 @@ import pickle
 import re
 from rank_bm25 import BM25Okapi
 
+from paths import INDEX_DIR
+
 class BM25Retriever:
     def __init__(self):
         self.index = None          # BM25Okapi instance
@@ -50,9 +52,7 @@ class BM25Retriever:
 
     def save(self, path=None):
         if path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
-            path = os.path.join(search_service_dir, "models", "bm25.pkl")
+            path = os.path.join(INDEX_DIR, "bm25.pkl")
         
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
@@ -61,9 +61,7 @@ class BM25Retriever:
 
     def load(self, path=None):
         if path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            search_service_dir = os.path.dirname(current_dir)
-            path = os.path.join(search_service_dir, "models", "bm25.pkl")
+            path = os.path.join(INDEX_DIR, "bm25.pkl")
         
         if not os.path.exists(path):
             print(f"BM25 index file not found at {path}.")

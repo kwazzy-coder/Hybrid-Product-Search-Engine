@@ -1,4 +1,8 @@
-from query_understanding import QueryIntent
+from query_understanding import QueryIntent, category_matches
+
+# Bump when the feature vector changes, so logged training data from an older
+# version isn't mixed with new features.
+FEATURE_VERSION = 1
 
 def price_match_score(price: float, max_price: float | None) -> float:
     if max_price is None or max_price == 0:
@@ -11,29 +15,7 @@ def build_feature_vector(query_intent: QueryIntent, product: dict, rrf_score: fl
     # Extract categories and normalize safely
     q_cat = (query_intent.category or "").strip().lower()
     
-    category_match = 0.0
-    if q_cat:
-        p_cat = str(product.get("category", "") or "").strip().lower()
-        p_subcat = str(product.get("subcategory", "") or "").strip().lower()
-        p_name = str(product.get("name", "") or "").strip().lower()
-        p_tags = [str(t).lower() for t in product.get("tags", [])]
-        
-        # Check direct or synonym match
-        synonyms = {
-            "kurta": ["kurta", "kurti", "ethnic"],
-            "shirt": ["shirt", "shirts"],
-            "tshirt": ["tshirt", "t-shirt", "tee"],
-            "jeans": ["jeans", "denim"],
-            "dress": ["dress", "frock", "gown"],
-            "shoes": ["shoes", "sneakers", "footwear"]
-        }
-        
-        candidates = [q_cat]
-        if q_cat in synonyms:
-            candidates.extend(synonyms[q_cat])
-            
-        if p_cat == q_cat or any(c in p_subcat or c in p_name or c in p_tags for c in candidates):
-            category_match = 1.0
+    category_match = 1.0 if q_cat and category_matches(product, q_cat) else 0.0
     
     # Color match safety check
     p_color_val = product.get("color", [])
