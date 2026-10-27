@@ -28,6 +28,8 @@ data/crawler.db
 data/images_live/
 data/http_cache/
 search_service/models_live/
+search_service/models_onnx/
+search_service/models/clip_onnx*
 .pytest_cache/
 
 # Clicks, impressions and price-alert emails: personal data, never commit.

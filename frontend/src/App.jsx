@@ -41,6 +41,8 @@ export default function App() {
           setCatalog(data.catalog || null);
           setFeatures(data.features || null);
           setServer('ready');
+          // Photo search builds its index after the server starts: check back until it's done.
+          if (data.features?.photo_index?.building) timer = setTimeout(load, 10000);
         })
         .catch(() => {
           if (cancelled) return;

@@ -1,3 +1,4 @@
 -r search_service/requirements-lite.txt
 pytest
 httpx
+onnx  # lets the tests build a tiny ONNX model for the photo-search encoder

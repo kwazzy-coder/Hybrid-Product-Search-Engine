@@ -44,6 +44,9 @@ SERVE_FRONTEND = bool(FRONTEND_DIST) and os.path.isdir(FRONTEND_DIST)
 LOG_IMPRESSIONS = os.getenv("LOG_IMPRESSIONS", "true").lower() == "true"
 # "lite" = BM25 + re-ranker only (no MiniLM/CLIP, no torch): fits 512 MB free hosting tiers.
 LITE_MODE = os.getenv("SEARCH_MODE", "full").lower() == "lite"
+# Lite mode still offers photo search, with CLIP's image model on ONNX Runtime instead of torch
+# (see retrieval/clip_onnx.py). PHOTO_SEARCH=off turns it off to save ~200 MB.
+LITE_PHOTO = LITE_MODE and os.getenv("PHOTO_SEARCH", "on").lower() not in ("off", "0", "false", "no")
 ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "true").lower() == "true"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -208,7 +211,14 @@ if MOCK_SERVICES:
 
 bm25 = BM25Retriever()
 faiss = FAISSRetriever()
-clip = CLIPRetriever()
+if LITE_PHOTO:
+    from retrieval.clip_onnx import OnnxCLIPRetriever
+    from photo_indexer import PhotoIndexer
+    clip = OnnxCLIPRetriever()
+    photo_indexer = PhotoIndexer(clip)
+else:
+    clip = CLIPRetriever()
+    photo_indexer = None
 ltr_model = LTRModel()
 
 # Cross-platform deduplication index (product_id -> dedup info)
@@ -281,9 +291,10 @@ async def startup_event():
     # Try loading existing indices
     bm25_loaded = bm25.load()
     faiss_loaded = True if LITE_MODE else faiss.load()
-    clip_loaded = False if LITE_MODE else clip.load()
+    clip_loaded = clip.load() if (LITE_PHOTO or not LITE_MODE) else False
     if LITE_MODE:
-        print("SEARCH_MODE=lite: BM25 + re-ranking only (vector and photo search are off).")
+        print("SEARCH_MODE=lite: BM25 + re-ranking for text, "
+              + ("photo search on ONNX Runtime (index builds in the background)." if LITE_PHOTO else "photo search off."))
     global index_metadata
     metadata_path = os.path.join(INDEX_DIR, "index_metadata.json")
     if os.path.exists(metadata_path):
@@ -292,7 +303,7 @@ async def startup_event():
     else:
         index_metadata = {"version": "legacy", "document_count": len(bm25.product_ids)}
     
-    if not clip_loaded:
+    if not clip_loaded and not LITE_PHOTO:
         print("CLIP index not found. Visual search will be disabled.")
 
     # Load the embedding models now rather than on the first search, so the first
@@ -327,6 +338,10 @@ async def startup_event():
             print(f"Cross-source dedup index built: {len(dedup_index)} products have cross-platform duplicates")
         except Exception as e:
             print(f"Dedup index build failed (non-critical): {e}")
+
+    # Lite mode: embed product photos in the background; photo search turns on as they come in.
+    if LITE_PHOTO and os.getenv("PHOTO_INDEX_ON_START", "1") == "1":
+        photo_indexer.start(list(catalog_products()))
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -492,8 +507,12 @@ async def search_image(
         started_at = time.perf_counter()
         query_id = str(uuid.uuid4())
 
-        if LITE_MODE:
-            raise HTTPException(status_code=503, detail="Photo search is turned off on this server (lite mode).")
+        if LITE_MODE and not LITE_PHOTO:
+            raise HTTPException(status_code=503, detail="Photo search is turned off on this server (PHOTO_SEARCH=off).")
+        if LITE_PHOTO and (not photo_indexer.model_ready or clip.index.ntotal == 0):
+            # Don't block on the model download or an empty index; say what's happening instead.
+            status = photo_indexer.describe() or "the photo index is empty"
+            raise HTTPException(status_code=503, detail=f"Photo search is {status}. Try again in a minute.")
         contents = await file.read()
         if len(contents) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Image is larger than 10 MB")
@@ -507,7 +526,10 @@ async def search_image(
         (visual,) = await run_retrievers([("CLIP", partial(clip.search_by_image, top_k=200), image)])
 
         notice = None
-        if not visual:
+        if LITE_PHOTO and photo_indexer.building:
+            notice = (f"Photo search is still indexing the catalog: these results cover {clip.index.ntotal:,} "
+                      f"of {photo_indexer.total:,} products so far.")
+        elif not visual:
             if clip.index.ntotal == 0:
                 notice = "Photo search needs the CLIP image index: install torch and run scripts/build_live_index.py."
             elif clip.model is None:
@@ -618,6 +640,24 @@ def analytics_summary():
     return analytics.summary()
 
 
+def visual_search_ready() -> bool:
+    if LITE_MODE and not LITE_PHOTO:
+        return False
+    if LITE_PHOTO:
+        return photo_indexer.model_ready and clip.index.ntotal > 0
+    return clip.index.ntotal > 0 and clip.load_error is None
+
+
+def visual_search_error():
+    if visual_search_ready():
+        return None
+    if LITE_MODE and not LITE_PHOTO:
+        return "turned off on this server (PHOTO_SEARCH=off)"
+    if LITE_PHOTO:
+        return photo_indexer.describe() or "the photo index is empty"
+    return clip.load_error or (None if clip.index.ntotal > 0 else "no CLIP image index (run build_live_index.py)")
+
+
 @app.get("/stats")
 @app.get("/api/stats")
 def stats():
@@ -644,9 +684,9 @@ def stats():
             "last_scraped_at": max((p.get("scraped_at", "") for p in catalog), default="") or None,
         },
         "features": {
-            "visual_search_ready": clip.index.ntotal > 0 and not LITE_MODE and clip.load_error is None,
-            "visual_search_error": ("lite mode" if LITE_MODE else clip.load_error
-                                    or (None if clip.index.ntotal > 0 else "no CLIP image index (run build_live_index.py)")),
+            "visual_search_ready": visual_search_ready(),
+            "visual_search_error": visual_search_error(),
+            "photo_index": photo_indexer.status() if LITE_PHOTO else None,
             "search_mode": "lite" if LITE_MODE else "full",
             "alerts_enabled": ALERTS_ENABLED,
             "logging_impressions": LOG_IMPRESSIONS,

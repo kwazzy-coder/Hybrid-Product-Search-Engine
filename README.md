@@ -19,7 +19,7 @@ Includes **click logging with serve-time feature logging**, **LTR retraining on 
 * **🔄 Learning from Real Clicks**: Every search logs what was shown together with the exact 12 features each result had at that moment; clicks are logged with their position. `train_ltr_live.py` retrains on these with skip-above negatives (to reduce position bias) and only ships a model that beats the current one on held-out searches.
 * **📊 Evaluation on the Live Catalog**: `eval_live.py` pools candidates from every pipeline stage, labels them 0–3 with Claude (spot-checked by hand), and reports NDCG@5/10, Recall@20, MRR and latency per stage, so each component's contribution is measured.
 * **🔔 Price History & Alerts**: Daily crawls record price changes; cards show a price-history line, "lowest in 30 days" and price-drop badges, and shoppers can ask to be emailed when a product drops below their price.
-* **🧪 CI & Deployment**: GitHub Actions runs the test suite and frontend lint/build on every push; one container serves the site and API (lite build fits a 512 MB free tier, see [`DEPLOY.md`](DEPLOY.md)).
+* **🧪 CI & Deployment**: GitHub Actions runs the test suite and frontend lint/build on every push; one container serves the site and API (the lite build, including photo search on ONNX Runtime, fits a 512 MB free tier; see [`DEPLOY.md`](DEPLOY.md)).
 
 ---
 
@@ -244,7 +244,7 @@ The crawler is tested against local fake stores (pagination, robots.txt blocks, 
 
 ## 🐳 Deployment
 
-One container serves the website and the API. `Dockerfile` is the full engine (~2 GB memory); `Dockerfile.lite` is BM25 + re-ranking and fits a 512 MB free tier. `render.yaml` deploys the lite build to Render for free. See [`DEPLOY.md`](DEPLOY.md), including what to check before publishing store data.
+One container serves the website and the API. `Dockerfile` is the full engine (~2 GB memory); `Dockerfile.lite` is BM25 + re-ranking for text plus CLIP photo search on ONNX Runtime (no PyTorch), about 350 MB, so it fits a 512 MB free tier. In lite mode the photo index builds in the background after startup: text search works at once, and photo search switches on as the first product photos are indexed. `render.yaml` deploys the lite build to Render for free. See [`DEPLOY.md`](DEPLOY.md), including what to check before publishing store data.
 
 The original multi-service setup (MongoDB, Redis, gateway) still runs with `docker-compose up --build`.
 

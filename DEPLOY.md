@@ -5,7 +5,7 @@ one URL. There are two builds:
 
 | Build | File | What it includes | Memory |
 |---|---|---|---|
-| **Lite** | `Dockerfile.lite` | BM25 search, LightGBM re-ranking, filters, size filter, price history | ~150 MB (fits 512 MB free tiers) |
+| **Lite** | `Dockerfile.lite` | BM25 search, LightGBM re-ranking, filters, size filter, price history, photo search (CLIP image model on ONNX Runtime) | ~350 MB (fits 512 MB free tiers); ~150 MB with `PHOTO_SEARCH=off` |
 | **Full** | `Dockerfile` | Everything in lite, plus MiniLM semantic search and CLIP photo search | ~2 GB |
 
 ## Before you publish: the data
@@ -63,7 +63,10 @@ starts without crawling.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SEARCH_MODE` | `full` (`lite` in `Dockerfile.lite`) | `lite` = BM25 + re-ranker only |
+| `SEARCH_MODE` | `full` (`lite` in `Dockerfile.lite`) | `lite` = BM25 + re-ranker for text, ONNX CLIP for photos |
+| `PHOTO_SEARCH` | `on` | Lite mode only: `off` drops photo search and saves ~200 MB |
+| `PHOTO_INDEX_MAX` | all | Lite mode only: index at most this many product photos |
+| `CLIP_ONNX_URL` / `CLIP_ONNX_PATH` | Hugging Face `Xenova/clip-vit-base-patch32` (8-bit) | Where the photo model is downloaded from / kept |
 | `CRAWL_ON_START` | `0` | Crawl and index at startup when the image has no catalog |
 | `CRAWL_MAX_PRODUCTS` | `200` | Per-store cap for that startup crawl |
 | `CRAWLER_CONTACT` | – | Your email/URL, sent in the crawler's User-Agent |

@@ -1,4 +1,4 @@
-# Render Blueprint: one free web service running the lite build (BM25 + re-ranker, fits 512 MB).
+# Render Blueprint: one free web service running the lite build (BM25 + re-ranker + ONNX photo search, fits 512 MB).
 # The repo holds no scraped data, so on each start the container crawls a small catalog
 # (CRAWL_MAX_PRODUCTS per store) and builds its index. Free services sleep after 15 minutes
 # idle; the first visit after that takes about a minute.

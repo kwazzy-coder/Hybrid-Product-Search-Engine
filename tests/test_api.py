@@ -45,7 +45,7 @@ for p in CATALOG:
                                     " ".join(p["material"]), p["gender"]])
 
 APP_MODULES = ("main", "paths", "pipeline", "feedback_db", "retrieval", "reranker", "query_understanding",
-               "deduplication", "sizes", "analytics", "ingestion")
+               "deduplication", "sizes", "analytics", "ingestion", "photo_indexer")
 
 
 def _purge():
@@ -160,7 +160,7 @@ def test_stats_describe_live_catalog(client):
     assert s["catalog"]["top_sizes"] == ["M", "L", "XL"]
     assert s["catalog"]["has_ratings"] is False
     assert s["features"] == {"visual_search_ready": False, "search_mode": "full", "alerts_enabled": True,
-                             "logging_impressions": True,
+                             "logging_impressions": True, "photo_index": None,
                              "visual_search_error": "no CLIP image index (run build_live_index.py)"}
     assert client.get("/").json()["status"] == "ok"
 
@@ -179,10 +179,11 @@ def test_serves_built_frontend_when_configured(tmp_path, monkeypatch):
 
 
 def test_lite_mode_uses_bm25_only(tmp_path, monkeypatch):
-    """SEARCH_MODE=lite (the 512 MB deployment): text search works, photo search is switched off."""
+    """SEARCH_MODE=lite with PHOTO_SEARCH=off: text search works, photo search is switched off.
+    (Lite mode's ONNX photo search is covered in test_lite_photo.py.)"""
     from fastapi.testclient import TestClient
     from PIL import Image
-    main = load_app(tmp_path, monkeypatch, SEARCH_MODE="lite")
+    main = load_app(tmp_path, monkeypatch, SEARCH_MODE="lite", PHOTO_SEARCH="off")
     with TestClient(main.app) as c:
         body = c.get("/api/search", params={"q": "linen shirt size M"}).json()
         assert [p["_id"] for p in body["results"]] == ["pl_1"]

@@ -36,9 +36,13 @@ export function SearchBar({ onSearch, intent, totalResults, loading, image, onIm
     if (photoEnabled) pickFile(e.dataTransfer.files?.[0]);
   };
 
+  // The server builds its photo index after starting; say so instead of looking broken.
+  const photoWarming = !photoEnabled && Boolean(photoError?.startsWith('getting ready'));
   const photoTitle = photoEnabled
     ? 'Search by photo: upload or drop an image'
-    : `Photo search is unavailable on this server${photoError ? `: ${photoError}` : ''}`;
+    : photoWarming
+      ? `Photo search is ${photoError}`
+      : `Photo search is unavailable on this server${photoError ? `: ${photoError}` : ''}`;
 
   return (
     <div className="search-section">
@@ -94,6 +98,12 @@ export function SearchBar({ onSearch, intent, totalResults, loading, image, onIm
           }}
         />
       </div>
+
+      {photoWarming && !image && (
+        <p className="photo-warming" role="status">
+          Photo search is {photoError}. It switches on by itself.
+        </p>
+      )}
 
       {image && (
         <div className="photo-chip glass animate-fade-in">

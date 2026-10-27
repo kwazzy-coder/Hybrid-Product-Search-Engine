@@ -124,7 +124,7 @@ class CLIPRetriever:
         embedding = self.encode_texts([query])
         return self.search_by_embedding(embedding, top_k=top_k)
 
-    def add_image_embeddings(self, embeddings: np.ndarray, product_ids: list[str]):
+    def add_image_embeddings(self, embeddings: np.ndarray, product_ids: list[str], verbose: bool = True):
         if len(product_ids) == 0:
             return
             
@@ -144,7 +144,8 @@ class CLIPRetriever:
             
         ids_np = np.array(ids, dtype=np.int64)
         self.index.add_with_ids(embeddings.astype("float32"), ids_np)
-        print(f"CLIP index added {len(product_ids)} items. Total size: {self.index.ntotal}")
+        if verbose:
+            print(f"CLIP index added {len(product_ids)} items. Total size: {self.index.ntotal}")
 
     def save(self, index_path=None, map_path=None):
         if index_path is None or map_path is None:
