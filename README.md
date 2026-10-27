@@ -1,6 +1,5 @@
 # 🧵 Dhaaga: hybrid search across India's fashion brands
 
-[![CI](https://github.com/kwazzy-coder/Hybrid-Product-Search-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/kwazzy-coder/Hybrid-Product-Search-Engine/actions/workflows/ci.yml)
 
 *Dhaaga* (धागा) is Hindi for thread: one thread through many stores. It's a multimodal fashion search engine over **real products crawled from Indian fashion brands**, combining **Lexical Keyword Search (BM25)**, **Dense Text Vector Search (FAISS + MiniLM-L6-v2)**, and **Text-to-Image and Photo Search (CLIP ViT-B/32)**. Results are fused using **Reciprocal Rank Fusion (RRF)**, re-ranked via a **12-feature LightGBM LambdaRank model**, and filtered by category, price and **size in stock**.
 
