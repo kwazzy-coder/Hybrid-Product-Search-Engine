@@ -1,28 +1,28 @@
-# 🧵 Dhaaga: hybrid search across India's fashion brands
+# Dhaaga: hybrid search across India's fashion brands
 
 
-*Dhaaga* (धागा) is Hindi for thread: one thread through many stores. It's a multimodal fashion search engine over **real products crawled from Indian fashion brands**, combining **Lexical Keyword Search (BM25)**, **Dense Text Vector Search (FAISS + MiniLM-L6-v2)**, and **Text-to-Image and Photo Search (CLIP ViT-B/32)**. Results are fused using **Reciprocal Rank Fusion (RRF)**, re-ranked via a **12-feature LightGBM LambdaRank model**, and filtered by category, price and **size in stock**.
+*Dhaaga* : one thread through many stores. It's a multimodal fashion search engine over **real products crawled from Indian fashion brands**, combining **Lexical Keyword Search (BM25)**, **Dense Text Vector Search (FAISS + MiniLM-L6-v2)**, and **Text-to-Image and Photo Search (CLIP ViT-B/32)**. Results are fused using **Reciprocal Rank Fusion (RRF)**, re-ranked via a **12-feature LightGBM LambdaRank model**, and filtered by category, price and **size in stock**.
 
 Includes **click logging with serve-time feature logging**, **LTR retraining on real clicks**, an **offline evaluation harness on the live catalog** (LLM-assisted relevance labels), **price history and price-drop alerts**, CI, and a one-container deployment.
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
-* **⚡ 3-Way Parallel Hybrid Retrieval**: Queries execute across BM25, FAISS dense text, and CLIP text-to-image indexes simultaneously using `asyncio.gather`, merged via scale-invariant Reciprocal Rank Fusion ($k=60$).
-* **🎯 12-Feature Learning-to-Rank (LTR)**: LightGBM LambdaRank model (`objective="lambdarank"`, `metric="ndcg"`) optimized for top-K slot precision based on category match, color binding, ratings, discounts, CLIP visual similarity, and cross-platform price competitiveness.
-* **🖼️ Search by Photo**: Upload or drop a photo in the search bar to find visually similar products (CLIP image embeddings), optionally narrowed with text like *"under 1500"*.
-* **📏 Size in Stock**: Only show items available in your size, from a size chip or the query itself (*"black shirt size L"*, *"jeans 32 waist"*). Sizes are normalized across stores (XXL/2XL, UK 8/8, Free Size).
-* **🕸️ Live Catalog from Real Fashion Stores**: A polite, robots.txt-aware crawler (`crawler/`) collects real products from Indian fashion brands (Libas, Suta, Powerlook, The Bear House, Bonkers Corner), with real prices, MRP, sizes, stock and product links, and tracks price history for price-drop badges. See [`crawler/README.md`](crawler/README.md).
-* **🛍️ Cross-Store Matching**: In live mode, listings of the same physical product in different stores are matched by CLIP image similarity (≥0.92), confirmed by brand/title similarity, category and price sanity checks, to show where it's cheapest. The demo catalog simulates this with synthetic duplicates across *Amazon, Myntra, Ajio, Flipkart* labels.
-* **🔄 Learning from Real Clicks**: Every search logs what was shown together with the exact 12 features each result had at that moment; clicks are logged with their position. `train_ltr_live.py` retrains on these with skip-above negatives (to reduce position bias) and only ships a model that beats the current one on held-out searches.
-* **📊 Evaluation on the Live Catalog**: `eval_live.py` pools candidates from every pipeline stage, labels them 0–3 with Claude (spot-checked by hand), and reports NDCG@5/10, Recall@20, MRR and latency per stage, so each component's contribution is measured.
-* **🔔 Price History & Alerts**: Daily crawls record price changes; cards show a price-history line, "lowest in 30 days" and price-drop badges, and shoppers can ask to be emailed when a product drops below their price.
-* **🧪 CI & Deployment**: GitHub Actions runs the test suite and frontend lint/build on every push; one container serves the site and API (the lite build, including photo search on ONNX Runtime, fits a 512 MB free tier; see [`DEPLOY.md`](DEPLOY.md)).
+* **3-Way Parallel Hybrid Retrieval**: Queries execute across BM25, FAISS dense text, and CLIP text-to-image indexes simultaneously using `asyncio.gather`, merged via scale-invariant Reciprocal Rank Fusion ($k=60$).
+* **12-Feature Learning-to-Rank (LTR)**: LightGBM LambdaRank model (`objective="lambdarank"`, `metric="ndcg"`) optimized for top-K slot precision based on category match, color binding, ratings, discounts, CLIP visual similarity, and cross-platform price competitiveness.
+* **Search by Photo**: Upload or drop a photo in the search bar to find visually similar products (CLIP image embeddings), optionally narrowed with text like *"under 1500"*.
+* **Size in Stock**: Only show items available in your size, from a size chip or the query itself (*"black shirt size L"*, *"jeans 32 waist"*). Sizes are normalized across stores (XXL/2XL, UK 8/8, Free Size).
+* **Live Catalog from Real Fashion Stores**: A polite, robots.txt-aware crawler (`crawler/`) collects real products from Indian fashion brands (Libas, Suta, Powerlook, The Bear House, Bonkers Corner), with real prices, MRP, sizes, stock and product links, and tracks price history for price-drop badges. See [`crawler/README.md`](crawler/README.md).
+* **Cross-Store Matching**: In live mode, listings of the same physical product in different stores are matched by CLIP image similarity (≥0.92), confirmed by brand/title similarity, category and price sanity checks, to show where it's cheapest. The demo catalog simulates this with synthetic duplicates across *Amazon, Myntra, Ajio, Flipkart* labels.
+* **Learning from Real Clicks**: Every search logs what was shown together with the exact 12 features each result had at that moment; clicks are logged with their position. `train_ltr_live.py` retrains on these with skip-above negatives (to reduce position bias) and only ships a model that beats the current one on held-out searches.
+* **Evaluation on the Live Catalog**: `eval_live.py` pools candidates from every pipeline stage, labels them 0–3 with Claude (spot-checked by hand), and reports NDCG@5/10, Recall@20, MRR and latency per stage, so each component's contribution is measured.
+* **Price History & Alerts**: Daily crawls record price changes; cards show a price-history line, "lowest in 30 days" and price-drop badges, and shoppers can ask to be emailed when a product drops below their price.
+* **CI & Deployment**: GitHub Actions runs the test suite and frontend lint/build on every push; one container serves the site and API (the lite build, including photo search on ONNX Runtime, fits a 512 MB free tier; see [`DEPLOY.md`](DEPLOY.md)).
 
 ---
 
-## 🏗️ Architecture & Pipeline Data Flow
+## Architecture & Pipeline Data Flow
 
 ```
                                ┌────────────────────────────────┐
@@ -79,7 +79,7 @@ Includes **click logging with serve-time feature logging**, **LTR retraining on 
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Layer | Technologies & Frameworks |
 |---|---|
@@ -94,7 +94,7 @@ Includes **click logging with serve-time feature logging**, **LTR retraining on 
 
 ---
 
-## 🚀 Quick Start Guide
+## Quick Start Guide
 
 ### Prerequisites
 * **Python**: `3.11+` (Python 3.12 recommended)
@@ -163,7 +163,7 @@ npm run dev
 
 ---
 
-## 🔄 Learning from Clicks (LTR Retraining)
+## Learning from Clicks (LTR Retraining)
 
 The website logs every search's results with their ranking features, and every click with its position. Once you've collected 30+ searches with clicks:
 
@@ -181,7 +181,7 @@ It trains on real behaviour (clicked = positive; shown above a click but skipped
 
 ---
 
-## 📊 Evaluation
+## Evaluation
 
 Measure search quality on the live catalog, stage by stage:
 
@@ -216,7 +216,7 @@ MEAN AGGREGATE METRICS   | 0.8900        | 0.9052        | +1.7%      | 0.8963
 
 ---
 
-## 🧪 Tests
+## Tests
 
 ```bash
 pip install -r requirements-dev.txt
@@ -227,7 +227,7 @@ The crawler is tested against local fake stores (pagination, robots.txt blocks, 
 
 ---
 
-## 📡 API Endpoints Reference
+## API Endpoints Reference
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -241,7 +241,7 @@ The crawler is tested against local fake stores (pagination, robots.txt blocks, 
 
 ---
 
-## 🐳 Deployment
+## Deployment
 
 One container serves the website and the API. `Dockerfile` is the full engine (~2 GB memory); `Dockerfile.lite` is BM25 + re-ranking for text plus CLIP photo search on ONNX Runtime (no PyTorch), about 350 MB, so it fits a 512 MB free tier. In lite mode the photo index builds in the background after startup: text search works at once, and photo search switches on as the first product photos are indexed. `render.yaml` deploys the lite build to Render for free. See [`DEPLOY.md`](DEPLOY.md), including what to check before publishing store data.
 
@@ -249,6 +249,4 @@ The original multi-service setup (MongoDB, Redis, gateway) still runs with `dock
 
 ---
 
-## 📜 License
 
-Distributed under the MIT License. See `LICENSE` for details.
